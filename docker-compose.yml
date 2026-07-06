@@ -1,0 +1,25 @@
+# Local single-node stack: the vibe-kanban server with the web UI embedded
+# (built by the root Dockerfile). The remote/cloud stack (Postgres,
+# ElectricSQL, relay, attachments) lives in crates/remote/docker-compose.yml
+# and is driven by `pnpm run remote:dev`.
+
+services:
+  vibe-kanban:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: vibe-kanban:local
+    ports:
+      - "${VK_PORT:-3000}:3000"
+    environment:
+      HOST: 0.0.0.0
+      PORT: "3000"
+      RUST_LOG: ${RUST_LOG:-info}
+    volumes:
+      - vk-home:/home/appuser
+      - vk-repos:/repos
+    restart: unless-stopped
+
+volumes:
+  vk-home:
+  vk-repos:
