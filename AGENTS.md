@@ -55,4 +55,38 @@ Do not manually edit shared/remote-types.ts, instead edit crates/remote/src/bin/
 - Use `.env` for local overrides; never commit secrets. Key envs: `FRONTEND_PORT`, `BACKEND_PORT`, `HOST` 
 - Dev ports and assets are managed by `scripts/setup-dev-environment.js`.
 
+## FDE Surface (`packages/fde`)
+
+`packages/fde` (`@vibe/fde`) is the fork's orchestration-contract layer: typed
+sprint contracts, a deterministic Planner → Generator → Evaluator harness,
+a four-axis grader, and offline evals with adversarial negative controls. It
+certifies the orchestration core only — see
+[`docs/FDE_GATES.md`](docs/FDE_GATES.md) for the gate table and
+[`docs/adr/`](docs/adr/) for the load-bearing decisions (scope boundary:
+ADR 0005).
+
+### Gates
+- `pnpm run fde:check` — TypeScript type check of the FDE package
+- `pnpm run fde:test` — vitest suite (51 tests)
+- `pnpm run fde:evals` — offline eval suite; regenerates `docs/benchmark/offline-eval-summary.json`
+- `pnpm run contracts:check` — committed `contracts/schema.json` + hash must match a fresh build
+- `pnpm run benchmark:check` — committed eval summary + the table in `docs/BENCHMARK.md` must match a fresh run
+- `pnpm run notebooks:check` — notebooks committed clean (no outputs, no execution counts)
+
+### Rules
+- Never hand-edit `contracts/schema.json` or `contracts/schema.sha256`; change
+  the zod schemas in `packages/fde/src/contracts/` and run `pnpm run contracts:sync`.
+- Never hand-edit `docs/benchmark/offline-eval-summary.json`; it is regenerated
+  by `pnpm run fde:evals`. Keep the table in `docs/BENCHMARK.md` in sync — it
+  is drift-checked.
+- Keep the harness strictly deterministic: no clocks, no randomness, stable
+  (alphabetical) orderings. Artifacts use `"generatedAt": "deterministic"`.
+- The TS `TaskStatusSchema` mirrors the Rust serde wire format of `TaskStatus`
+  in `crates/db/src/models/task.rs` (`rename_all = "lowercase"`). If the Rust
+  enum changes, update the contract and regenerate artifacts (ADR 0002).
+- New violation classes are added as tamper modes with matching adversarial
+  fixtures that pin expected issue codes (ADR 0003).
+- Rust gates (cargo) run in CI only; do not assume a local Rust toolchain
+  (ADR 0001).
+
 

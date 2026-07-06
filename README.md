@@ -1,117 +1,111 @@
 <p align="center">
-  <a href="https://vibekanban.com">
-    <picture>
-      <source srcset="packages/public/vibe-kanban-logo-dark.svg" media="(prefers-color-scheme: dark)">
-      <source srcset="packages/public/vibe-kanban-logo.svg" media="(prefers-color-scheme: light)">
-      <img src="packages/public/vibe-kanban-logo.svg" alt="Vibe Kanban Logo">
-    </picture>
-  </a>
+  <picture>
+    <source srcset="packages/public/vibe-kanban-logo-dark.svg" media="(prefers-color-scheme: dark)">
+    <source srcset="packages/public/vibe-kanban-logo.svg" media="(prefers-color-scheme: light)">
+    <img src="packages/public/vibe-kanban-logo.svg" alt="Vibe Kanban Logo">
+  </picture>
 </p>
 
-<p align="center">Get 10X more out of Claude Code, Gemini CLI, Codex, Amp and other coding agents...</p>
-<p align="center">
-  <a href="https://www.npmjs.com/package/vibe-kanban"><img alt="npm" src="https://img.shields.io/npm/v/vibe-kanban?style=flat-square" /></a>
-  <a href="https://github.com/BloopAI/vibe-kanban/blob/main/.github/workflows/publish.yml"><img alt="Build status" src="https://img.shields.io/github/actions/workflow/status/BloopAI/vibe-kanban/.github%2Fworkflows%2Fpublish.yml" /></a>
-  <a href="https://deepwiki.com/BloopAI/vibe-kanban"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
-</p>
-
-<h1 align="center">
-  <strong>Vibe Kanban is sunsetting.</strong>
-  <a href="https://www.vibekanban.com/blog/shutdown">Read the announcement.</a>
-</h1>
+<p align="center"><strong>Agent task orchestration board</strong> — real-time visibility into what AI agents are doing across your repos.</p>
 
 ![](packages/public/vibe-kanban-screenshot-overview.png)
 
-## Overview
+## The problem
 
-In a world where software engineers spend most of their time planning and reviewing coding agents, the most impactful way to ship more is to get faster at planning and review.
+Agent orchestration without visibility is chaos. When five coding agents are
+working three repos — each spawning sub-agents, managing task queues, opening
+PRs — the operator needs a board that shows what agents are *actually doing*,
+not what they were asked to do three minutes ago. Stale dashboards and
+terminal scrollback don't survive contact with a 12-agent deployment.
 
-Vibe Kanban is built for this. Use kanban issues to plan work, either privately or with your team. When you're ready to begin, create workspaces where coding agents can execute.
+Vibe Kanban closes that gap: a kanban board where agents report their own
+task state over MCP. What's queued, what's in-flight, what's blocked, what
+shipped — live, per agent, per repo.
 
-- **Plan with kanban issues** — create, prioritise, and assign issues on a kanban board
+- **Plan with kanban issues** — create, prioritise, and assign work on a board
 - **Run coding agents in workspaces** — each workspace gives an agent a branch, a terminal, and a dev server
-- **Review diffs and leave inline comments** — send feedback directly to the agent without leaving the UI
-- **Preview your app** — built-in browser with devtools, inspect mode, and device emulation
-- **Switch between 10+ coding agents** — Claude Code, Codex, Gemini CLI, GitHub Copilot, Amp, Cursor, OpenCode, Droid, CCR, and Qwen Code
-- **Create pull requests and merge** — open PRs with AI-generated descriptions, review on GitHub, and merge
+- **Review diffs with inline comments** — send feedback straight back to the agent
+- **Preview your app** — built-in browser with devtools and device emulation
+- **Switch between 10+ coding agents** — Claude Code, Codex, Gemini CLI, Copilot, Amp, Cursor, OpenCode, Droid, CCR, Qwen Code
+- **Open and merge PRs** — with AI-generated descriptions
 
-![](packages/public/vibe-kanban-screenshot-workspace.png)
+We run this fork in production at [TechTide AI](https://github.com/TechTideOhio)
+to keep human operators in the loop on multi-agent client deployments —
+delivery monitoring, incident response when an agent wedges, and sprint
+retrospectives over agent throughput. See [TECHTIDE.md](TECHTIDE.md).
 
-One command. Describe the work, review the diff, ship it.
+## Fork status
 
-```bash
-npx vibe-kanban
-```
+This is a maintained fork of
+[BloopAI/vibe-kanban](https://github.com/BloopAI/vibe-kanban) (Apache-2.0).
+**Upstream is sunsetting** ([announcement](https://www.vibekanban.com/blog/shutdown)),
+so this fork stands on its own from `v0.1.44`. We contributed fixes upstream
+while it was active:
 
+| PR | Description |
+|----|-------------|
+| [#3418](https://github.com/BloopAI/vibe-kanban/pull/3418) | Exclude ambiguous characters from SPAKE2 enrollment codes |
+| [#3419](https://github.com/BloopAI/vibe-kanban/pull/3419) | Add start/target date fields to the MCP update-issue tool |
+| [#3420](https://github.com/BloopAI/vibe-kanban/pull/3420) | Fix MCP backend URL discovery with a health-check probe |
 
-## Installation
+## Getting started
 
-Make sure you have authenticated with your favourite coding agent. A full list of supported coding agents can be found in the [docs](https://vibekanban.com/docs/supported-coding-agents). Then in your terminal run:
+Run from source (Rust stable, Node >= 20, pnpm >= 8):
 
-```bash
-npx vibe-kanban
-```
-
-## Documentation
-
-Head to the [website](https://vibekanban.com/docs) for the latest documentation and user guides.
-
-## Self-Hosting
-
-Want to host your own Vibe Kanban Cloud instance? See our [self-hosting guide](https://vibekanban.com/docs/self-hosting/deploy-docker).
-
-## Support
-
-We use [GitHub Discussions](https://github.com/BloopAI/vibe-kanban/discussions) for feature requests. Please open a discussion to create a feature request. For bugs please open an issue on this repo.
-
-## Contributing
-
-We would prefer that ideas and changes are first raised with the core team via [GitHub Discussions](https://github.com/BloopAI/vibe-kanban/discussions) or [Discord](https://discord.gg/AC4nwVtJM3), where we can discuss implementation details and alignment with the existing roadmap. Please do not open PRs without first discussing your proposal with the team.
-
-## Development
-
-### Prerequisites
-
-- [Rust](https://rustup.rs/) (latest stable)
-- [Node.js](https://nodejs.org/) (>=20)
-- [pnpm](https://pnpm.io/) (>=8)
-
-Additional development tools:
-```bash
-cargo install cargo-watch
-cargo install sqlx-cli
-```
-
-Install dependencies:
 ```bash
 pnpm i
-```
-
-### Running the dev server
-
-```bash
 pnpm run dev
 ```
 
-This will start the backend and web app. A blank DB will be copied from the `dev_assets_seed` folder.
-
-### Building the web app
-
-To build just the web app:
+Or run the containerized local stack:
 
 ```bash
-cd packages/local-web
-pnpm run build
+docker compose up --build
 ```
 
-### Build from source (macOS)
+`npx vibe-kanban` installs upstream's final published npm release, not this
+fork.
 
-1. Run `./local-build.sh`
-2. Test with `cd npx-cli && node bin/cli.js`
+## Proof, honestly scoped
 
-### Environment Variables
+Two independent proof surfaces back this repo — see
+[docs/FDE_GATES.md](docs/FDE_GATES.md) for the full twelve-pillar gate table:
 
-The following environment variables can be configured at build time or runtime:
+- **Product core (Rust, 33 crates).** Upstream's test suite — 263 Rust test
+  functions — runs in [.github/workflows/test.yml](.github/workflows/test.yml)
+  on every change, exactly as it did before the fork.
+- **Orchestration contract (FDE layer).** `packages/fde` is a deterministic
+  offline harness: a Planner → Generator → Evaluator pipeline over typed,
+  versioned sprint contracts grounded in the real task state machine
+  (`crates/db/src/models/task.rs`), graded on four axes with adversarial
+  negative controls. No LLM keys, no network, byte-identical output every
+  run. Results and limitations: [docs/BENCHMARK.md](docs/BENCHMARK.md).
+
+```bash
+pnpm run fde:test        # 51 tests over the harness
+pnpm run fde:evals       # 12/12 orchestration scenarios
+pnpm run contracts:check # contract artifact drift gate
+```
+
+What we do **not** claim: the FDE gates do not certify the Tauri desktop
+app, relay/WebRTC tunneling, or the remote deployment stack
+([ADR 0005](docs/adr/0005-scope-fde-to-orchestration-core.md)).
+
+## Development
+
+Working agreements for humans and agents live in [AGENTS.md](AGENTS.md).
+Architecture decisions are recorded in [docs/adr/](docs/adr/).
+
+| Command | Purpose |
+|---|---|
+| `pnpm run dev` | Backend + web app with auto-assigned ports |
+| `pnpm run check` | Type checks across frontend and Rust workspaces |
+| `cargo test --workspace` | Rust test suite |
+| `pnpm run generate-types` | Regenerate TS types from Rust (never edit `shared/types.ts` by hand) |
+| `pnpm run fde:test` / `fde:evals` | FDE harness tests and offline evals |
+
+<details>
+<summary>Environment variables</summary>
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
@@ -123,41 +117,18 @@ The following environment variables can be configured at build time or runtime:
 | `HOST` | Runtime | `127.0.0.1` | Backend server host |
 | `MCP_HOST` | Runtime | Value of `HOST` | MCP server connection host (use `127.0.0.1` when `HOST=0.0.0.0` on Windows) |
 | `MCP_PORT` | Runtime | Value of `BACKEND_PORT` | MCP server connection port |
-| `DISABLE_WORKTREE_CLEANUP` | Runtime | Not set | Disable all git worktree cleanup including orphan and expired workspace cleanup (for debugging) |
-| `VK_ALLOWED_ORIGINS` | Runtime | Not set | Comma-separated list of origins that are allowed to make backend API requests (e.g., `https://my-vibekanban-frontend.com`) |
-| `VK_SHARED_API_BASE` | Runtime | Not set | Base URL for the remote/cloud API used by the local desktop app |
+| `DISABLE_WORKTREE_CLEANUP` | Runtime | Not set | Disable git worktree cleanup (for debugging) |
+| `VK_ALLOWED_ORIGINS` | Runtime | Not set | Comma-separated origins allowed to call the backend API |
+| `VK_SHARED_API_BASE` | Runtime | Not set | Base URL for the remote/cloud API used by the desktop app |
 | `VK_SHARED_RELAY_API_BASE` | Runtime | Not set | Base URL for the relay API used by tunnel-mode connections |
-| `VK_TUNNEL` | Runtime | Not set | Enable relay tunnel mode when set (requires relay API base URL) |
+| `VK_TUNNEL` | Runtime | Not set | Enable relay tunnel mode (requires relay API base URL) |
 
-**Build-time variables** must be set when running `pnpm run build`. **Runtime variables** are read when the application starts.
+Behind a reverse proxy or custom domain, set `VK_ALLOWED_ORIGINS` to the full
+origin URL(s) of your frontend, or API requests fail with 403.
 
-#### Self-Hosting with a Reverse Proxy or Custom Domain
+</details>
 
-When running Vibe Kanban behind a reverse proxy (e.g., nginx, Caddy, Traefik) or on a custom domain, you must set the `VK_ALLOWED_ORIGINS` environment variable. Without this, the browser's Origin header won't match the backend's expected host, and API requests will be rejected with a 403 Forbidden error.
+## License
 
-Set it to the full origin URL(s) where your frontend is accessible:
-
-```bash
-# Single origin
-VK_ALLOWED_ORIGINS=https://vk.example.com
-
-# Multiple origins (comma-separated)
-VK_ALLOWED_ORIGINS=https://vk.example.com,https://vk-staging.example.com
-```
-
-### Remote Deployment
-
-When running Vibe Kanban on a remote server (e.g., via systemctl, Docker, or cloud hosting), you can configure your editor to open projects via SSH:
-
-1. **Access via tunnel**: Use Cloudflare Tunnel, ngrok, or similar to expose the web UI
-2. **Configure remote SSH** in Settings → Editor Integration:
-   - Set **Remote SSH Host** to your server hostname or IP
-   - Set **Remote SSH User** to your SSH username (optional)
-3. **Prerequisites**:
-   - SSH access from your local machine to the remote server
-   - SSH keys configured (passwordless authentication)
-   - VSCode Remote-SSH extension
-
-When configured, the "Open in VSCode" buttons will generate URLs like `vscode://vscode-remote/ssh-remote+user@host/path` that open your local editor and connect to the remote server.
-
-See the [documentation](https://vibekanban.com/docs/settings/general) for detailed setup instructions.
+Apache-2.0, same as upstream. Original work © BloopAI and the vibe-kanban
+contributors; fork maintenance © TechTide AI.
