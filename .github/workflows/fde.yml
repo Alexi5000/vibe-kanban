@@ -1,0 +1,67 @@
+name: FDE
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'packages/fde/**'
+      - 'contracts/**'
+      - 'docs/BENCHMARK.md'
+      - 'docs/benchmark/**'
+      - 'notebooks/**'
+      - 'docker-compose.yml'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - '.npmrc'
+      - '.github/workflows/fde.yml'
+      - '.github/actions/**'
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  NODE_VERSION: 22
+  PNPM_VERSION: 10.13.1
+
+jobs:
+  fde-gates:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: ./.github/actions/setup-node
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --filter @vibe/fde
+
+      - name: Type check
+        run: pnpm run fde:check
+
+      - name: Tests
+        run: pnpm run fde:test
+
+      - name: Offline evals
+        run: pnpm run fde:evals
+
+      - name: Contract drift check
+        run: pnpm run contracts:check
+
+      - name: Benchmark drift check
+        run: pnpm run benchmark:check
+
+      - name: Notebook hygiene check
+        run: pnpm run notebooks:check
+
+      - name: Verify evals did not drift committed artifacts
+        run: git diff --exit-code -- docs/benchmark/offline-eval-summary.json contracts/
+
+      - name: Validate docker-compose
+        run: docker compose config -q
