@@ -1,0 +1,25 @@
+{
+  "name": "@vibe/fde",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Offline FDE harness for agent task orchestration: typed sprint contracts, three-agent adversarial evals, four-axis grading, plateau detection.",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "vitest run",
+    "evals": "tsx scripts/evals.ts",
+    "contracts:sync": "tsx scripts/contracts-sync.ts",
+    "contracts:check": "tsx scripts/contracts-check.ts",
+    "benchmark:check": "tsx scripts/benchmark-check.ts",
+    "notebooks:check": "tsx scripts/check-notebooks.ts"
+  },
+  "dependencies": {
+    "zod": "^4.0.10"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

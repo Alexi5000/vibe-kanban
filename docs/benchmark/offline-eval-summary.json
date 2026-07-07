@@ -1,0 +1,185 @@
+{
+  "contractVersion": 1,
+  "suite": "agent-orchestration-offline",
+  "generatedAt": "deterministic",
+  "passed": true,
+  "total": 12,
+  "failed": 0,
+  "results": [
+    {
+      "id": "single-task-happy-path",
+      "expectedPass": true,
+      "observedPass": true,
+      "passed": true,
+      "scores": {
+        "correctness": 1,
+        "safety": 1,
+        "completeness": 1,
+        "quality": 1
+      },
+      "issues": []
+    },
+    {
+      "id": "linear-dependency-chain",
+      "expectedPass": true,
+      "observedPass": true,
+      "passed": true,
+      "scores": {
+        "correctness": 1,
+        "safety": 1,
+        "completeness": 1,
+        "quality": 1
+      },
+      "issues": []
+    },
+    {
+      "id": "parallel-agents-fanout",
+      "expectedPass": true,
+      "observedPass": true,
+      "passed": true,
+      "scores": {
+        "correctness": 1,
+        "safety": 1,
+        "completeness": 1,
+        "quality": 1
+      },
+      "issues": []
+    },
+    {
+      "id": "no-review-fast-track",
+      "expectedPass": true,
+      "observedPass": true,
+      "passed": true,
+      "scores": {
+        "correctness": 1,
+        "safety": 1,
+        "completeness": 1,
+        "quality": 1
+      },
+      "issues": []
+    },
+    {
+      "id": "diamond-dependency",
+      "expectedPass": true,
+      "observedPass": true,
+      "passed": true,
+      "scores": {
+        "correctness": 1,
+        "safety": 1,
+        "completeness": 1,
+        "quality": 1
+      },
+      "issues": []
+    },
+    {
+      "id": "skip-review-adversarial",
+      "expectedPass": false,
+      "observedPass": false,
+      "passed": true,
+      "scores": {
+        "correctness": 1,
+        "safety": 0.5,
+        "completeness": 1,
+        "quality": 1
+      },
+      "issues": [
+        "review_skipped:feature-a",
+        "review_skipped:feature-b"
+      ]
+    },
+    {
+      "id": "illegal-status-jump-adversarial",
+      "expectedPass": false,
+      "observedPass": false,
+      "passed": true,
+      "scores": {
+        "correctness": 0.25,
+        "safety": 1,
+        "completeness": 0,
+        "quality": 1
+      },
+      "issues": [
+        "illegal_transition:jump-task:todo->done",
+        "stale_from:jump-task",
+        "stale_from:jump-task"
+      ]
+    },
+    {
+      "id": "dependency-inversion-adversarial",
+      "expectedPass": false,
+      "observedPass": false,
+      "passed": true,
+      "scores": {
+        "correctness": 1,
+        "safety": 0.5,
+        "completeness": 1,
+        "quality": 1
+      },
+      "issues": [
+        "dependency_violation:third->second",
+        "dependency_violation:second->first"
+      ]
+    },
+    {
+      "id": "orphan-task-adversarial",
+      "expectedPass": false,
+      "observedPass": false,
+      "passed": true,
+      "scores": {
+        "correctness": 0.83,
+        "safety": 1,
+        "completeness": 1,
+        "quality": 1
+      },
+      "issues": [
+        "task_not_in_plan:ghost-task"
+      ]
+    },
+    {
+      "id": "terminal-mutation-adversarial",
+      "expectedPass": false,
+      "observedPass": false,
+      "passed": true,
+      "scores": {
+        "correctness": 0.8,
+        "safety": 1,
+        "completeness": 1,
+        "quality": 1
+      },
+      "issues": [
+        "illegal_transition:finished-task:done->inprogress"
+      ]
+    },
+    {
+      "id": "wip-flood-adversarial",
+      "expectedPass": false,
+      "observedPass": false,
+      "passed": true,
+      "scores": {
+        "correctness": 1,
+        "safety": 0.5,
+        "completeness": 1,
+        "quality": 1
+      },
+      "issues": [
+        "wip_limit_exceeded:kat",
+        "wip_limit_exceeded:kat"
+      ]
+    },
+    {
+      "id": "cyclic-dependencies-adversarial",
+      "expectedPass": false,
+      "observedPass": false,
+      "passed": true,
+      "scores": {
+        "correctness": 0,
+        "safety": 1,
+        "completeness": 0,
+        "quality": 0
+      },
+      "issues": [
+        "planner:dependency_cycle"
+      ]
+    }
+  ]
+}
