@@ -59,6 +59,10 @@ runs:
       if: ${{ inputs.setup-sqlx-cli == 'true' }}
       uses: taiki-e/cache-cargo-install-action@34ce5120836e5f9f1508d8713d7fdea0e8facd6f # v3.0.1
       with:
-        tool: sqlx-cli
+        # Pin to the workspace sqlx version (0.8.6). Leaving this unpinned pulls
+        # the latest sqlx-cli, whose newer releases raise the required rustc past
+        # the pinned nightly toolchain and can diverge from the runtime's offline
+        # query-data format.
+        tool: sqlx-cli@0.8.6
         no-default-features: true
         features: sqlite,postgres

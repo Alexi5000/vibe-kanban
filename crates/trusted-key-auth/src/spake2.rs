@@ -74,8 +74,7 @@ pub fn normalize_enrollment_code(raw_code: &str) -> Result<String, TrustedKeyAut
     // when reading a code displayed in a font where 0≈O or 1≈I≈L.
     let code = code
         .replace('O', "0")
-        .replace('I', "1")
-        .replace('L', "1")
+        .replace(['I', 'L'], "1")
         .replace('U', "V");
 
     Ok(code)

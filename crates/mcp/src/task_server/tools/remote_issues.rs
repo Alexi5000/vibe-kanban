@@ -546,7 +546,7 @@ impl McpServer {
                 Err(_) => {
                     return Ok(McpServer::tool_error(ToolError::message(format!(
                         "Invalid start_date format. Expected ISO 8601 (e.g. '2025-06-01T00:00:00Z'), got: {s}"
-                    ))))
+                    ))));
                 }
             },
             Some(None) => Some(None), // explicitly clear the date
@@ -558,7 +558,7 @@ impl McpServer {
                 Err(_) => {
                     return Ok(McpServer::tool_error(ToolError::message(format!(
                         "Invalid target_date format. Expected ISO 8601 (e.g. '2025-06-15T00:00:00Z'), got: {s}"
-                    ))))
+                    ))));
                 }
             },
             Some(None) => Some(None),

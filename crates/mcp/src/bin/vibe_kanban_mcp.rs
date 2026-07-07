@@ -174,7 +174,9 @@ async fn resolve_base_url(log_prefix: &str) -> anyhow::Result<String> {
         if probe_backend(&alt_url, log_prefix).await {
             tracing::info!(
                 "[{}] Primary host {} unreachable, using alternate: {}",
-                log_prefix, host, alt_url
+                log_prefix,
+                host,
+                alt_url
             );
             return Ok(alt_url);
         }
@@ -183,7 +185,9 @@ async fn resolve_base_url(log_prefix: &str) -> anyhow::Result<String> {
     // Fall through to original URL — downstream will report the real error
     tracing::warn!(
         "[{}] No backend responded on port {}. Using {} (may fail).",
-        log_prefix, port, primary_url
+        log_prefix,
+        port,
+        primary_url
     );
     Ok(primary_url)
 }
