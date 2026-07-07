@@ -31,6 +31,7 @@ env:
 
 jobs:
   bump-version:
+    if: ${{ github.repository == 'BloopAI/vibe-kanban' }}
     runs-on: ubuntu-24.04
     outputs:
       new_tag: ${{ steps.version.outputs.new_tag }}

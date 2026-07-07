@@ -11,6 +11,7 @@ on:
 jobs:
   run-relay-deploy:
     name: Deploy Relay Dev
+    if: ${{ github.repository == 'BloopAI/vibe-kanban' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read

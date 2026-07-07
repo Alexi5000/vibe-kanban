@@ -6,6 +6,7 @@ on:
 
 jobs:
   create-release:
+    if: ${{ github.repository == 'BloopAI/vibe-kanban' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write

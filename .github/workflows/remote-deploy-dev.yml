@@ -12,6 +12,7 @@ on:
 jobs:
   run-remote-deploy:
     name: Deploy Remote Dev
+    if: ${{ github.repository == 'BloopAI/vibe-kanban' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read

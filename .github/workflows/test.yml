@@ -222,6 +222,7 @@ jobs:
     needs: changes
     if: >-
       always()
+      && github.repository == 'BloopAI/vibe-kanban'
       && (needs.changes.outputs['backend-remote'] == 'true' || needs.changes.result == 'skipped')
       && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: *runner_label

@@ -25,6 +25,7 @@ env:
 
 jobs:
   release-and-deploy:
+    if: ${{ github.repository == 'BloopAI/vibe-kanban' }}
     runs-on: ubuntu-latest
     steps:
       - name: Install cargo-edit
