@@ -14,12 +14,12 @@
     "notebooks:check": "tsx scripts/check-notebooks.ts"
   },
   "dependencies": {
-    "zod": "^4.0.10"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@types/node": "^20.0.0",
-    "tsx": "^4.19.2",
-    "typescript": "^5.7.0",
-    "vitest": "^3.0.0"
+    "@types/node": "^20.19.43",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.5"
   }
 }

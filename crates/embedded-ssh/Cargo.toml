@@ -5,10 +5,8 @@ edition = "2024"
 
 [dependencies]
 relay-control = { path = "../relay-control" }
-russh = "0.48"
-russh-keys = "0.48"
+russh = "0.64.1"
 russh-sftp = "2.0"
-ssh-key = { version = "0.6", features = ["ed25519"] }
 ed25519-dalek = "2.2.0"
 tokio = { workspace = true }
 anyhow = { workspace = true }
