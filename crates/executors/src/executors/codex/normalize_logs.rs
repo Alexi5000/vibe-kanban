@@ -12,9 +12,8 @@ use codex_app_server_protocol::{
     ItemCompletedNotification as AppItemCompletedNotification,
     ItemStartedNotification as AppItemStartedNotification, JSONRPCNotification, JSONRPCRequest,
     JSONRPCResponse, McpToolCallProgressNotification, McpToolCallStatus as AppMcpToolCallStatus,
-    PatchApplyStatus as AppPatchApplyStatus, ServerNotification, ServerRequest, ThreadForkResponse,
-    ThreadItem as AppThreadItem, ThreadStartResponse, ThreadTokenUsageUpdatedNotification,
-    ToolRequestUserInputQuestion,
+    PatchApplyStatus as AppPatchApplyStatus, ServerNotification, ServerRequest,
+    ThreadItem as AppThreadItem, ThreadTokenUsageUpdatedNotification, ToolRequestUserInputQuestion,
 };
 use codex_protocol::{
     dynamic_tools::DynamicToolCallOutputContentItem as CoreDynamicToolCallOutputContentItem,
@@ -22,14 +21,14 @@ use codex_protocol::{
     openai_models::ReasoningEffort,
     plan_tool::{StepStatus, UpdatePlanArgs},
     protocol::{
-        AgentMessageDeltaEvent, AgentMessageEvent, AgentReasoningDeltaEvent, AgentReasoningEvent,
-        AgentReasoningSectionBreakEvent, ApplyPatchApprovalRequestEvent, BackgroundEventEvent,
-        ErrorEvent, EventMsg, ExecApprovalRequestEvent, ExecCommandBeginEvent, ExecCommandEndEvent,
-        ExecCommandOutputDeltaEvent, ExecOutputStream, ExitedReviewModeEvent,
-        FileChange as CodexProtoFileChange, ItemCompletedEvent, ItemStartedEvent, McpInvocation,
-        McpToolCallBeginEvent, McpToolCallEndEvent, ModelRerouteEvent, PatchApplyBeginEvent,
-        PatchApplyEndEvent, PlanDeltaEvent, RequestUserInputEvent, StreamErrorEvent,
-        ViewImageToolCallEvent, WarningEvent, WebSearchBeginEvent, WebSearchEndEvent,
+        AgentMessageEvent, AgentReasoningEvent, AgentReasoningSectionBreakEvent,
+        ApplyPatchApprovalRequestEvent, ErrorEvent, EventMsg, ExecApprovalRequestEvent,
+        ExecCommandBeginEvent, ExecCommandEndEvent, ExecCommandOutputDeltaEvent, ExecOutputStream,
+        ExitedReviewModeEvent, FileChange as CodexProtoFileChange, ItemCompletedEvent,
+        ItemStartedEvent, McpInvocation, McpToolCallBeginEvent, McpToolCallEndEvent,
+        ModelRerouteEvent, PatchApplyBeginEvent, PatchApplyEndEvent, PlanDeltaEvent,
+        RequestUserInputEvent, StreamErrorEvent, ViewImageToolCallEvent, WarningEvent,
+        WebSearchBeginEvent, WebSearchEndEvent,
     },
 };
 use futures::StreamExt;
@@ -43,6 +42,7 @@ use workspace_utils::{
     path::make_path_relative,
 };
 
+use super::compat::{ThreadSessionResponse, adapt_params};
 use crate::{
     approvals::ToolCallMetadata,
     logs::{
@@ -69,7 +69,35 @@ trait ToNormalizedEntryOpt {
 #[derive(Debug, Deserialize)]
 struct CodexNotificationParams {
     #[serde(rename = "msg")]
-    msg: EventMsg,
+    msg: Value,
+}
+
+fn decode_core_event(mut value: Value) -> Result<EventMsg, serde_json::Error> {
+    let event_type = value
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let path_key = match event_type.as_str() {
+        "exec_command_begin" | "exec_command_end" => Some("cwd"),
+        "view_image_tool_call" => Some("path"),
+        _ => None,
+    };
+    if let Some(key) = path_key
+        && let Some(path) = value.get(key).and_then(Value::as_str)
+        && let Some(uri) =
+            codex_utils_path_uri::LegacyAppPathString::from_string(path).to_inferred_path_uri()
+    {
+        value[key] = Value::String(uri.to_string());
+    }
+    if matches!(
+        event_type.as_str(),
+        "apply_patch_approval_request" | "exec_approval_request" | "item_started"
+    ) && let Some(object) = value.as_object_mut()
+    {
+        object.entry("started_at_ms").or_insert(Value::from(0));
+    }
+    serde_json::from_value(value)
 }
 
 #[derive(Default)]
@@ -669,6 +697,9 @@ fn dynamic_tool_markdown_from_app_items(items: &[AppDynamicToolCallOutputContent
             AppDynamicToolCallOutputContentItem::InputImage { image_url } => {
                 format!("Image: {image_url}")
             }
+            AppDynamicToolCallOutputContentItem::InputAudio { audio_url } => {
+                format!("Audio: {audio_url}")
+            }
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -681,6 +712,9 @@ fn dynamic_tool_markdown_from_core_items(items: &[CoreDynamicToolCallOutputConte
             CoreDynamicToolCallOutputContentItem::InputText { text } => text.clone(),
             CoreDynamicToolCallOutputContentItem::InputImage { image_url } => {
                 format!("Image: {image_url}")
+            }
+            CoreDynamicToolCallOutputContentItem::InputAudio { audio_url } => {
+                format!("Audio: {audio_url}")
             }
         })
         .collect::<Vec<_>>()
@@ -1007,7 +1041,8 @@ fn handle_direct_item_started(
                 },
             );
         }
-        AppThreadItem::WebSearch { id, .. } => {
+        AppThreadItem::WebSearch(item) => {
+            let id = item.id;
             state.web_searches.insert(id.clone(), WebSearchState::new());
             let web_search_state = state.web_searches.get_mut(&id).unwrap();
             let normalized_entry = web_search_state.to_normalized_entry();
@@ -1171,7 +1206,8 @@ fn handle_direct_item_completed(
                 },
             );
         }
-        AppThreadItem::WebSearch { id, query, .. } => {
+        AppThreadItem::WebSearch(item) => {
+            let (id, query) = (item.id, item.query);
             if let Some(mut entry) = state.web_searches.remove(&id) {
                 entry.status = ToolStatus::Success;
                 entry.query = Some(query);
@@ -1181,7 +1217,7 @@ fn handle_direct_item_completed(
             }
         }
         AppThreadItem::ImageView { path, .. } => {
-            let relative_path = make_path_relative(&path.to_string_lossy(), worktree_path);
+            let relative_path = make_path_relative(path.as_str(), worktree_path);
             add_normalized_entry(
                 msg_store,
                 entry_index,
@@ -1553,7 +1589,25 @@ pub fn normalize_logs(
                 continue;
             }
 
-            if let Ok(server_notification) = serde_json::from_str::<ServerNotification>(&line) {
+            let mut adapted = serde_json::from_str::<Value>(&line).unwrap_or(Value::Null);
+            if let Some(method) = adapted
+                .get("method")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+            {
+                if method == "thread/started"
+                    && let Some(id) = adapted.pointer("/params/thread/id").and_then(Value::as_str)
+                {
+                    msg_store.push_session_id(id.to_string());
+                    continue;
+                }
+                if let Some(params) = adapted.get_mut("params") {
+                    adapt_params(&method, params);
+                }
+            }
+            if let Ok(server_notification) =
+                serde_json::from_value::<ServerNotification>(adapted.clone())
+            {
                 if handle_direct_notification(
                     server_notification,
                     &mut state,
@@ -1573,7 +1627,7 @@ pub fn normalize_logs(
                 continue;
             }
 
-            if let Ok(request) = serde_json::from_str::<JSONRPCRequest>(&line)
+            if let Ok(request) = serde_json::from_value::<JSONRPCRequest>(adapted)
                 && let Ok(server_request) = ServerRequest::try_from(request)
                 && handle_direct_request(server_request, &mut state, &msg_store, &entry_index)
             {
@@ -1596,7 +1650,70 @@ pub fn normalize_logs(
                 continue;
             };
 
-            let event = params.msg;
+            match params.msg.get("type").and_then(Value::as_str) {
+                Some("session_configured") => {
+                    if let Some(session_id) = params.msg.get("session_id").and_then(Value::as_str) {
+                        msg_store.push_session_id(session_id.to_string());
+                    }
+                    let model = params
+                        .msg
+                        .get("model")
+                        .and_then(Value::as_str)
+                        .map(str::to_string);
+                    let effort = params
+                        .msg
+                        .get("reasoning_effort")
+                        .and_then(|v| serde_json::from_value(v.clone()).ok());
+                    handle_model_params(
+                        model,
+                        effort,
+                        &msg_store,
+                        &entry_index,
+                        &mut state.model_params,
+                    );
+                    continue;
+                }
+                Some("agent_message_delta") => {
+                    if let Some(delta) = params.msg.get("delta").and_then(Value::as_str) {
+                        state.thinking = None;
+                        let (entry, index, is_new) =
+                            state.assistant_message_append(delta.to_string());
+                        upsert_normalized_entry(&msg_store, index, entry, is_new);
+                    }
+                    continue;
+                }
+                Some("agent_reasoning_delta") => {
+                    if let Some(delta) = params.msg.get("delta").and_then(Value::as_str) {
+                        state.assistant = None;
+                        let (entry, index, is_new) = state.thinking_append(delta.to_string());
+                        upsert_normalized_entry(&msg_store, index, entry, is_new);
+                    }
+                    continue;
+                }
+                Some("background_event") => {
+                    if let Some(message) = params.msg.get("message").and_then(Value::as_str) {
+                        add_normalized_entry(
+                            &msg_store,
+                            &entry_index,
+                            NormalizedEntry {
+                                timestamp: None,
+                                entry_type: NormalizedEntryType::SystemMessage,
+                                content: format!("Background event: {message}"),
+                                metadata: None,
+                            },
+                        );
+                    }
+                    continue;
+                }
+                _ => {}
+            }
+            let event = match decode_core_event(params.msg) {
+                Ok(event) => event,
+                Err(error) => {
+                    tracing::warn!("unrecognized Codex event: {error}");
+                    continue;
+                }
+            };
             match event {
                 EventMsg::SessionConfigured(payload) => {
                     msg_store.push_session_id(payload.session_id.to_string());
@@ -1607,16 +1724,6 @@ pub fn normalize_logs(
                         &entry_index,
                         &mut state.model_params,
                     );
-                }
-                EventMsg::AgentMessageDelta(AgentMessageDeltaEvent { delta }) => {
-                    state.thinking = None;
-                    let (entry, index, is_new) = state.assistant_message_append(delta);
-                    upsert_normalized_entry(&msg_store, index, entry, is_new);
-                }
-                EventMsg::AgentReasoningDelta(AgentReasoningDeltaEvent { delta }) => {
-                    state.assistant = None;
-                    let (entry, index, is_new) = state.thinking_append(delta);
-                    upsert_normalized_entry(&msg_store, index, entry, is_new);
                 }
                 EventMsg::AgentMessage(AgentMessageEvent { message, .. }) => {
                     state.thinking = None;
@@ -1686,6 +1793,7 @@ pub fn normalize_logs(
                     changes,
                     reason: _,
                     grant_root: _,
+                    ..
                 }) => {
                     state.assistant = None;
                     state.thinking = None;
@@ -1755,6 +1863,7 @@ pub fn normalize_logs(
                     source: _,
                     interaction_input: _,
                     process_id: _,
+                    ..
                 }) => {
                     state.assistant = None;
                     state.thinking = None;
@@ -1845,18 +1954,6 @@ pub fn normalize_logs(
                             command_state.to_normalized_entry(),
                         );
                     }
-                }
-                EventMsg::BackgroundEvent(BackgroundEventEvent { message }) => {
-                    add_normalized_entry(
-                        &msg_store,
-                        &entry_index,
-                        NormalizedEntry {
-                            timestamp: None,
-                            entry_type: NormalizedEntryType::SystemMessage,
-                            content: format!("Background event: {message}"),
-                            metadata: None,
-                        },
-                    );
                 }
                 EventMsg::StreamError(StreamErrorEvent {
                     message,
@@ -2130,7 +2227,7 @@ pub fn normalize_logs(
                 EventMsg::ViewImageToolCall(ViewImageToolCallEvent { call_id: _, path }) => {
                     state.assistant = None;
                     state.thinking = None;
-                    let path_str = path.to_string_lossy().to_string();
+                    let path_str = path.inferred_native_path_string();
                     let relative_path = make_path_relative(&path_str, &worktree_path_str);
                     add_normalized_entry(
                         &msg_store,
@@ -2297,6 +2394,7 @@ pub fn normalize_logs(
                     call_id,
                     turn_id: _,
                     questions: event_questions,
+                    ..
                 }) => {
                     state.assistant = None;
                     state.thinking = None;
@@ -2376,27 +2474,49 @@ pub fn normalize_logs(
                         }
                     }
                 }
+                EventMsg::ThreadSettingsApplied(payload) => {
+                    handle_model_params(
+                        Some(payload.thread_settings.model),
+                        payload.thread_settings.reasoning_effort,
+                        &msg_store,
+                        &entry_index,
+                        &mut state.model_params,
+                    );
+                }
+                event @ (EventMsg::TurnModerationMetadata(..)
+                | EventMsg::SafetyBuffering(..)
+                | EventMsg::EnvironmentConnected(..)
+                | EventMsg::EnvironmentDisconnected(..)
+                | EventMsg::ThreadGoalUpdated(..)
+                | EventMsg::SubAgentActivity(..)) => {
+                    if let Ok(content) = serde_json::to_string(&event) {
+                        add_normalized_entry(
+                            &msg_store,
+                            &entry_index,
+                            NormalizedEntry {
+                                timestamp: None,
+                                entry_type: NormalizedEntryType::SystemMessage,
+                                content,
+                                metadata: None,
+                            },
+                        );
+                    }
+                }
+                EventMsg::RawResponseCompleted(..) => {}
                 EventMsg::AgentReasoningRawContent(..)
-                | EventMsg::AgentReasoningRawContentDelta(..)
                 | EventMsg::ThreadRolledBack(..)
                 | EventMsg::TurnStarted(..)
                 | EventMsg::UserMessage(..)
                 | EventMsg::TurnDiff(..)
-                | EventMsg::GetHistoryEntryResponse(..)
-                | EventMsg::McpListToolsResponse(..)
                 | EventMsg::McpStartupComplete(..)
                 | EventMsg::McpStartupUpdate(..)
                 | EventMsg::DeprecationNotice(..)
-                | EventMsg::UndoCompleted(..)
-                | EventMsg::UndoStarted(..)
                 | EventMsg::RawResponseItem(..)
                 | EventMsg::ItemStarted(..)
                 | EventMsg::ItemCompleted(..)
                 | EventMsg::AgentMessageContentDelta(..)
                 | EventMsg::ReasoningContentDelta(..)
                 | EventMsg::ReasoningRawContentDelta(..)
-                | EventMsg::ListSkillsResponse(..)
-                | EventMsg::SkillsUpdateAvailable
                 | EventMsg::TurnAborted(..)
                 | EventMsg::ShutdownComplete
                 | EventMsg::TerminalInteraction(..)
@@ -2412,7 +2532,6 @@ pub fn normalize_logs(
                 | EventMsg::CollabCloseEnd(..)
                 | EventMsg::CollabResumeBegin(..)
                 | EventMsg::CollabResumeEnd(..)
-                | EventMsg::ThreadNameUpdated(..)
                 | EventMsg::RealtimeConversationStarted(..)
                 | EventMsg::RealtimeConversationSdp(..)
                 | EventMsg::RealtimeConversationRealtime(..)
@@ -2440,7 +2559,7 @@ fn handle_jsonrpc_response(
     entry_index: &EntryIndexProvider,
     model_params: &mut ModelParamsState,
 ) {
-    if let Ok(resp) = serde_json::from_value::<ThreadStartResponse>(response.result.clone()) {
+    if let Ok(resp) = serde_json::from_value::<ThreadSessionResponse>(response.result.clone()) {
         msg_store.push_session_id(resp.thread.id);
         handle_model_params(
             Some(resp.model),
@@ -2450,17 +2569,6 @@ fn handle_jsonrpc_response(
             model_params,
         );
         return;
-    }
-
-    if let Ok(resp) = serde_json::from_value::<ThreadForkResponse>(response.result.clone()) {
-        msg_store.push_session_id(resp.thread.id);
-        handle_model_params(
-            Some(resp.model),
-            resp.reasoning_effort,
-            msg_store,
-            entry_index,
-            model_params,
-        );
     }
 }
 
@@ -2770,6 +2878,46 @@ mod tests {
             }
         })
         .to_string()
+    }
+
+    #[tokio::test]
+    async fn preserves_legacy_streams_background_and_image_paths() {
+        let lines: Vec<String> = [
+            json!({"type": "agent_message_delta", "delta": "Hello"}),
+            json!({"type": "agent_message_delta", "delta": " world"}),
+            json!({"type": "agent_reasoning_delta", "delta": "Thinking"}),
+            json!({"type": "background_event", "message": "Indexed files"}),
+            json!({"type": "view_image_tool_call", "call_id": "image-1", "path": "/tmp/test-worktree/my image.png"}),
+        ].into_iter().map(|msg| json!({"method": "codex/event", "params": {"msg": msg}}).to_string()).collect();
+        let entries = normalize_lines(&lines).await;
+        assert!(entries.iter().any(|entry| entry.content == "Hello world"));
+        assert!(entries.iter().any(|entry| entry.content == "Thinking"));
+        assert!(
+            entries
+                .iter()
+                .any(|entry| entry.content == "Background event: Indexed files")
+        );
+        let image = tool_use(&entries, "view_image");
+        assert!(matches!(&image.entry_type, NormalizedEntryType::ToolUse {
+            action_type: ActionType::FileRead { path }, ..
+        } if path == "my image.png"));
+    }
+
+    #[test]
+    fn decodes_legacy_command_paths_and_patch_approval() {
+        for path in ["/tmp/test-worktree", "C:\\work\\project"] {
+            let event = decode_core_event(json!({
+                "type": "exec_command_begin", "call_id": "cmd-1", "turn_id": "turn-1",
+                "command": ["echo", "ok"], "cwd": path, "parsed_cmd": [],
+            }))
+            .unwrap();
+            assert!(matches!(event, EventMsg::ExecCommandBegin(_)));
+        }
+        let event = decode_core_event(json!({
+            "type": "apply_patch_approval_request", "call_id": "patch-1", "changes": {},
+        }))
+        .unwrap();
+        assert!(matches!(event, EventMsg::ApplyPatchApprovalRequest(_)));
     }
 
     #[tokio::test]

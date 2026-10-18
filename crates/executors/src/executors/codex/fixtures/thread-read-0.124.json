@@ -1,0 +1,23 @@
+{
+  "thread": {
+    "id": "01900000-0000-7000-8000-000000000001",
+    "forkedFromId": null,
+    "preview": "",
+    "ephemeral": true,
+    "modelProvider": "openai",
+    "createdAt": 1,
+    "updatedAt": 1,
+    "status": {
+      "type": "idle"
+    },
+    "path": null,
+    "cwd": "/tmp/worktree",
+    "cliVersion": "0.124.0",
+    "source": "vscode",
+    "agentNickname": null,
+    "agentRole": null,
+    "gitInfo": null,
+    "name": null,
+    "turns": []
+  }
+}

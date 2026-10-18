@@ -1,10 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use codex_app_server_protocol::{ConfigEdit, JSONRPCNotification, MergeStrategy};
-use codex_protocol::{
-    config_types::ServiceTier,
-    protocol::{AgentMessageEvent, ErrorEvent, EventMsg},
-};
+use codex_protocol::protocol::{AgentMessageEvent, ErrorEvent, EventMsg};
 use serde_json::json;
 
 use super::{
@@ -191,7 +188,7 @@ impl Codex {
                             .await
                             .ok()
                             .and_then(|r| r.config.service_tier)
-                            .map(|t| matches!(t, ServiceTier::Fast))
+                            .map(|t| t == "fast")
                             .unwrap_or(false);
                         if status {
                             let message = if current_is_fast || session_fast {
@@ -225,7 +222,7 @@ impl Codex {
                         // Fork current session with new tier if one is active
                         if let Some(old_thread_id) = session_id {
                             let service_tier = if want_fast {
-                                Some(Some(ServiceTier::Fast))
+                                Some(Some("fast".to_string()))
                             } else {
                                 Some(None)
                             };
@@ -401,7 +398,7 @@ async fn fetch_status_message(
     let global_fast = config_resp
         .as_ref()
         .and_then(|r| r.config.service_tier.as_ref())
-        .map(|t| matches!(t, ServiceTier::Fast))
+        .map(|t| t == "fast")
         .unwrap_or(false);
     if global_fast || session_fast {
         lines.push("- **Service Tier**: `fast ⚡`".to_string());
@@ -420,7 +417,11 @@ async fn fetch_status_message(
                 }
                 lines.push(format!("- **CWD**: `{}`", thread.cwd.display()));
                 lines.push(format!("- **CLI version**: `{}`", thread.cli_version));
-                let source_label = format!("{:?}", thread.source).replace("VsCode", "Vibe Kanban");
+                let source_label = match thread.source.as_str() {
+                    Some("vscode") => "Vibe Kanban".to_string(),
+                    Some(source) => source.to_string(),
+                    None => thread.source.to_string(),
+                };
                 lines.push(format!("- **Source**: `{source_label}`"));
             }
             Err(err) => {
@@ -662,6 +663,7 @@ fn format_mcp_auth_status(status: &codex_app_server_protocol::McpAuthStatus) -> 
         codex_app_server_protocol::McpAuthStatus::NotLoggedIn => "not logged in",
         codex_app_server_protocol::McpAuthStatus::BearerToken => "bearer token",
         codex_app_server_protocol::McpAuthStatus::OAuth => "oauth",
+        codex_app_server_protocol::McpAuthStatus::Unknown => "unknown",
     }
 }
 
