@@ -1450,3 +1450,151 @@ fn pull_request_branch_validation_preserves_normal_names() {
         assert!(!service.is_branch_name_valid(branch), "{branch}");
     }
 }
+
+#[test]
+fn remote_url_lookup_only_accepts_configured_remotes() {
+    let root = TempDir::new().unwrap();
+    let local = root.path().join("local");
+    GitService::new()
+        .initialize_repo_with_main_branch(&local)
+        .unwrap();
+    let repo = Repository::open(&local).unwrap();
+    repo.remote("origin", "https://example.com/acme/repo.git")
+        .unwrap();
+    let git = GitCli::new();
+
+    assert_eq!(
+        git.remote_names(&local).unwrap(),
+        vec!["origin".to_string()]
+    );
+    assert_eq!(
+        git.get_remote_url(&local, "origin").unwrap(),
+        "https://example.com/acme/repo.git"
+    );
+    for bad in ["--push", "-h", "missing", ""] {
+        assert!(
+            matches!(
+                git.get_remote_url(&local, bad),
+                Err(GitCliError::InvalidOperand(_))
+            ),
+            "{bad:?} must be rejected before reaching git"
+        );
+    }
+}
+
+#[test]
+fn squash_merge_rejects_option_shaped_branches() {
+    let root = TempDir::new().unwrap();
+    let (repo_path, _worktree_path) = setup_repo_with_worktree(&root);
+    let repo = Repository::open(&repo_path).unwrap();
+    checkout_branch(&repo, "main");
+    let original_head = repo.head().unwrap().target().unwrap();
+    let git = GitCli::new();
+
+    for (base, from) in [
+        ("--orphan=pwned", "feature"),
+        ("main", "--strategy=ours"),
+        ("main", "-Xtheirs"),
+        ("main", "does-not-exist"),
+        ("does-not-exist", "feature"),
+    ] {
+        let result = git.merge_squash_commit(&repo_path, base, from, "squash");
+        assert!(
+            matches!(result, Err(GitCliError::InvalidOperand(_))),
+            "{base:?}/{from:?} must be rejected, got {result:?}"
+        );
+    }
+    assert!(repo.find_branch("pwned", git2::BranchType::Local).is_err());
+    assert_eq!(repo.head().unwrap().shorthand(), Some("main"));
+    assert_eq!(repo.head().unwrap().target().unwrap(), original_head);
+}
+
+#[test]
+fn squash_merge_still_merges_existing_local_branches() {
+    let root = TempDir::new().unwrap();
+    let (repo_path, _worktree_path) = setup_repo_with_worktree(&root);
+    let repo = Repository::open(&repo_path).unwrap();
+    checkout_branch(&repo, "old-base");
+    let git = GitCli::new();
+
+    let sha = git
+        .merge_squash_commit(&repo_path, "old-base", "feature", "squash feature")
+        .unwrap();
+
+    let head = repo.head().unwrap();
+    assert_eq!(head.shorthand(), Some("old-base"));
+    assert_eq!(head.target().unwrap().to_string(), sha);
+    let tree = head.peel_to_commit().unwrap().tree().unwrap();
+    assert!(tree.get_name("feat.txt").is_some());
+}
+
+#[test]
+fn rebase_requires_existing_local_task_branch() {
+    let root = TempDir::new().unwrap();
+    let (_repo_path, worktree_path) = setup_repo_with_worktree(&root);
+    let git = GitCli::new();
+
+    assert!(matches!(
+        git.rebase_onto(&worktree_path, "new-base", "old-base", "no-such-branch"),
+        Err(GitCliError::InvalidOperand(_))
+    ));
+    assert!(matches!(
+        git.rebase_onto(&worktree_path, "--exec=true", "old-base", "feature"),
+        Err(GitCliError::InvalidOperand(_))
+    ));
+    assert!(
+        git.local_branch_names(&worktree_path)
+            .unwrap()
+            .contains(&"feature".to_string())
+    );
+    git.rebase_onto(&worktree_path, "new-base", "old-base", "feature")
+        .unwrap();
+    let repo = Repository::open(&worktree_path).unwrap();
+    let tree = repo
+        .head()
+        .unwrap()
+        .peel_to_commit()
+        .unwrap()
+        .tree()
+        .unwrap();
+    assert!(tree.get_name("feat.txt").is_some());
+}
+
+#[test]
+fn branch_and_ref_helpers_reject_option_operands() {
+    let root = TempDir::new().unwrap();
+    let (repo_path, _worktree_path) = setup_repo_with_worktree(&root);
+    let repo = Repository::open(&repo_path).unwrap();
+    let git = GitCli::new();
+    let head = repo.head().unwrap().target().unwrap().to_string();
+
+    assert!(matches!(
+        git.delete_branch(&repo_path, "--remotes"),
+        Err(GitCliError::InvalidOperand(_))
+    ));
+    assert!(matches!(
+        git.update_ref(&repo_path, "-d", &head),
+        Err(GitCliError::InvalidOperand(_))
+    ));
+    assert!(matches!(
+        git.merge_base(&repo_path, "--all", "main"),
+        Err(GitCliError::InvalidOperand(_))
+    ));
+    let wt = root.path().join("wt-injected");
+    assert!(matches!(
+        git.worktree_add(&repo_path, &wt, "--detach", false),
+        Err(GitCliError::InvalidOperand(_))
+    ));
+    assert!(!wt.exists());
+
+    // Normal operands keep working through the `--` separated forms.
+    git.update_ref(&repo_path, "refs/heads/copied", &head)
+        .unwrap();
+    assert!(repo.find_branch("copied", git2::BranchType::Local).is_ok());
+    git.delete_branch(&repo_path, "copied").unwrap();
+    assert!(repo.find_branch("copied", git2::BranchType::Local).is_err());
+    let wt_new = root.path().join("wt-new");
+    git.worktree_add(&repo_path, &wt_new, "brand-new", true)
+        .unwrap();
+    assert!(wt_new.join("common.txt").exists());
+}
