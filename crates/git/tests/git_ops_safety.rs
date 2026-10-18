@@ -1347,3 +1347,69 @@ fn merge_base_ahead_of_task_should_error() {
         "Merge should error when base branch is ahead of task branch"
     );
 }
+
+#[test]
+fn network_operations_do_not_interpret_remote_as_options() {
+    let root = TempDir::new().unwrap();
+    let local = root.path().join("local");
+    let remote = root.path().join("remote.git");
+    GitService::new()
+        .initialize_repo_with_main_branch(&local)
+        .unwrap();
+    Repository::init_bare(&remote).unwrap();
+    let marker = root.path().join("unexpected-command");
+    let payload = format!("touch {}; #", marker.display());
+    let git = GitCli::new();
+    assert!(
+        git.fetch_with_refspec(
+            &local,
+            &format!("--upload-pack={payload}"),
+            remote.to_str().unwrap()
+        )
+        .is_err()
+    );
+    assert!(!marker.exists());
+    assert!(
+        git.check_remote_branch_exists(&local, &format!("--upload-pack={payload}"), "main")
+            .is_err()
+    );
+    assert!(!marker.exists());
+    assert!(
+        git.push(&local, &format!("--receive-pack={payload}"), "main", false)
+            .is_err()
+    );
+    assert!(!marker.exists());
+}
+
+#[test]
+fn network_operations_preserve_local_remote_roundtrip() {
+    let root = TempDir::new().unwrap();
+    let local = root.path().join("local");
+    let remote = root.path().join("remote with spaces.git");
+    GitService::new()
+        .initialize_repo_with_main_branch(&local)
+        .unwrap();
+    Repository::init_bare(&remote).unwrap();
+    let repo = Repository::open(&local).unwrap();
+    configure_user(&repo);
+    write_file(&local, "roundtrip.md", "network test");
+    commit_all(&repo, "network test");
+    let git = GitCli::new();
+    let remote = remote.to_str().unwrap();
+    git.push(&local, remote, "main", false).unwrap();
+    assert!(
+        git.check_remote_branch_exists(&local, remote, "main")
+            .unwrap()
+    );
+    assert!(
+        !git.check_remote_branch_exists(&local, remote, "absent")
+            .unwrap()
+    );
+    git.fetch_with_refspec(&local, remote, "refs/heads/main:refs/remotes/test/main")
+        .unwrap();
+    assert_eq!(
+        repo.refname_to_id("refs/heads/main").unwrap(),
+        repo.refname_to_id("refs/remotes/test/main").unwrap()
+    );
+    git.push(&local, remote, "main", true).unwrap();
+}
