@@ -49,6 +49,7 @@ jobs:
               - 'shared/**'
               - 'scripts/check-i18n.sh'
               - 'scripts/check-unused-i18n-keys.mjs'
+              - 'scripts/test-vscode-message-boundary.cjs'
               - 'scripts/check-legacy-frontend-paths.sh'
               - 'scripts/legacy-frontend-paths-allowlist.txt'
               - 'pnpm-lock.yaml'
@@ -200,6 +201,9 @@ jobs:
             "node scripts/check-unused-i18n-keys.mjs" \
             "./scripts/check-legacy-frontend-paths.sh"
 
+      - name: Test VS Code message boundaries
+        run: node --test scripts/test-vscode-message-boundary.cjs
+
   backend-schema-checks:
     needs: changes
     if: always() && (needs.changes.outputs.backend == 'true' || needs.changes.result == 'skipped')
@@ -312,6 +316,7 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           cache-key: backend-test-${{ runner.os }}-${{ runner.arch }}-${{ env.RUNNER_LABEL }}
+          setup-node: 'true'
 
       - name: Install cargo-nextest
         uses: taiki-e/cache-cargo-install-action@34ce5120836e5f9f1508d8713d7fdea0e8facd6f # v3.0.1
@@ -322,6 +327,9 @@ jobs:
 
       - name: Run Cargo tests
         run: cargo nextest run --workspace --exclude vibe-kanban-tauri
+
+      - name: Test preview navigation message boundaries
+        run: node --test crates/preview-proxy/src/devtools_script.test.cjs
 
   tauri-checks:
     needs: changes

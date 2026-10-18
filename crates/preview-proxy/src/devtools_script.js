@@ -212,6 +212,7 @@
   };
 
   window.addEventListener('message', function(event) {
+    if (event.source !== window.parent || window.parent === window) return;
     if (!event.data || event.data.source !== SOURCE || event.data.type !== 'navigate') {
       return;
     }
@@ -230,13 +231,20 @@
         location.reload();
         break;
       case 'goto':
-        if (payload.url) {
+        if (typeof payload.url === 'string' && payload.url) {
+          var target;
+          try {
+            target = new URL(payload.url, location.href);
+          } catch (e) {
+            return;
+          }
+          if (target.protocol !== 'http:' && target.protocol !== 'https:') return;
           navStack = navStack.slice(0, navIndex + 1);
-          navStack.push(payload.url);
+          navStack.push(target.href);
           navIndex = navStack.length - 1;
           saveNavState();
           sendNavigation();
-          location.href = payload.url;
+          location.href = target.href;
         }
         break;
     }
