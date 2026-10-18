@@ -57,10 +57,14 @@ if ! grep -q '^vk-billing = \["private-billing-source-missing"\]$' "$MANIFEST" \
   exit 1
 fi
 
+dep_line="billing = { git = \"$BILLING_GIT\", rev = \"$BILLING_REV\", package = \"billing\", optional = true }"
 if grep -q '^billing = {' "$MANIFEST"; then
+  if ! grep -Fxq "$dep_line" "$MANIFEST"; then
+    echo "existing billing dependency does not match requested source/revision; use a clean build checkout" >&2
+    exit 1
+  fi
   echo "billing dependency already present in $MANIFEST"
 else
-  dep_line="billing = { git = \"$BILLING_GIT\", rev = \"$BILLING_REV\", package = \"billing\", optional = true }"
   tmp="$(mktemp)"
   awk -v dep="$dep_line" '
     { print }

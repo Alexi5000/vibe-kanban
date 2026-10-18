@@ -45,6 +45,12 @@ class PrivateBillingTests(unittest.TestCase):
         self.assertNotEqual(self.run_script(VK_BILLING_REV='bad"revision').returncode, 0)
         self.assertEqual(before, (self.root / "Cargo.toml").read_bytes())
 
+    def test_changed_revision_does_not_silently_reuse_existing_source(self):
+        self.assertEqual(self.run_script().returncode, 0)
+        before = (self.root / "Cargo.toml").read_bytes()
+        self.assertNotEqual(self.run_script(VK_BILLING_REV="b" * 40).returncode, 0)
+        self.assertEqual(before, (self.root / "Cargo.toml").read_bytes())
+
     def test_reviewed_revision_override(self):
         revision = "a" * 40
         self.assertEqual(self.run_script(VK_BILLING_REV=revision).returncode, 0)
