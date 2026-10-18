@@ -1,0 +1,27 @@
+name: Desktop launcher security
+on:
+  pull_request:
+    paths:
+      - "npx-cli/**"
+      - ".github/workflows/desktop-security.yml"
+  push:
+    branches: [main]
+    paths:
+      - "npx-cli/**"
+      - ".github/workflows/desktop-security.yml"
+permissions:
+  contents: read
+jobs:
+  launcher:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: "22"
+      - run: npm ci --prefix npx-cli
+      - run: npm run build --prefix npx-cli
+      - run: node --experimental-strip-types --test npx-cli/tests/desktop.security.test.ts
