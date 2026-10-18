@@ -353,6 +353,7 @@ impl GitCli {
 
         let args = [
             OsString::from("fetch"),
+            OsString::from("--"),
             OsString::from(remote_url),
             OsString::from(refspec),
         ];
@@ -381,6 +382,7 @@ impl GitCli {
 
         let args = [
             OsString::from("push"),
+            OsString::from("--"),
             OsString::from(remote_url),
             OsString::from(refspec),
         ];
@@ -404,6 +406,7 @@ impl GitCli {
         let args = [
             OsString::from("ls-remote"),
             OsString::from("--heads"),
+            OsString::from("--"),
             OsString::from(remote_url),
             OsString::from(format!("refs/heads/{branch_name}")),
         ];
