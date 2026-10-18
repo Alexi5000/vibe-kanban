@@ -49,6 +49,7 @@ jobs:
               - 'shared/**'
               - 'scripts/check-i18n.sh'
               - 'scripts/check-unused-i18n-keys.mjs'
+              - 'scripts/test-vscode-message-boundary.cjs'
               - 'scripts/check-legacy-frontend-paths.sh'
               - 'scripts/legacy-frontend-paths-allowlist.txt'
               - 'pnpm-lock.yaml'
@@ -199,6 +200,9 @@ jobs:
             "GITHUB_BASE_REF=${{ github.base_ref || 'main' }} ./scripts/check-i18n.sh" \
             "node scripts/check-unused-i18n-keys.mjs" \
             "./scripts/check-legacy-frontend-paths.sh"
+
+      - name: Test VS Code message boundaries
+        run: node --test scripts/test-vscode-message-boundary.cjs
 
   backend-schema-checks:
     needs: changes

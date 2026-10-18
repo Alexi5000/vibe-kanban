@@ -263,7 +263,7 @@ function enqueueInsert(text: string) {
 }
 
 /** Request map to resolve clipboard paste requests from the extension. */
-const pasteResolvers: Record<string, (text: string) => void> = {};
+const pasteResolvers = new Map<string, (text: string) => void>();
 
 import { parentClipboardWrite } from '@/shared/lib/clipboard';
 
@@ -271,13 +271,14 @@ import { parentClipboardWrite } from '@/shared/lib/clipboard';
 export function parentClipboardRead(): Promise<string> {
   return new Promise((resolve) => {
     const requestId = Math.random().toString(36).slice(2);
-    pasteResolvers[requestId] = (text: string) => resolve(text);
+    pasteResolvers.set(requestId, resolve);
     try {
       window.parent.postMessage(
         { type: 'vscode-iframe-clipboard-paste-request', requestId },
         '*'
       );
     } catch {
+      pasteResolvers.delete(requestId);
       resolve('');
     }
   });
@@ -314,14 +315,19 @@ type IframeMessage = {
 
 // Handle messages from the parent webview (clipboard, add-to input)
 window.addEventListener('message', (e: MessageEvent) => {
+  if (e.source !== window.parent || window.parent === window) return;
   const data: unknown = e?.data;
   if (!data || typeof data !== 'object') return;
   const msg = data as IframeMessage;
-  if (msg.type === 'vscode-iframe-clipboard-paste-result' && msg.requestId) {
-    const fn = pasteResolvers[msg.requestId];
+  if (
+    msg.type === 'vscode-iframe-clipboard-paste-result' &&
+    typeof msg.requestId === 'string' &&
+    typeof msg.text === 'string'
+  ) {
+    const fn = pasteResolvers.get(msg.requestId);
     if (fn) {
-      fn(msg.text || '');
-      delete pasteResolvers[msg.requestId];
+      pasteResolvers.delete(msg.requestId);
+      fn(msg.text);
     }
   }
   if (msg.type === 'VIBE_ADD_TO_INPUT' && typeof msg.text === 'string') {
