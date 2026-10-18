@@ -154,19 +154,48 @@ impl TrustedKeyAuthRuntime {
 
 #[cfg(test)]
 mod tests {
+    use uuid::Uuid;
+
     use super::*;
+
+    /// Fresh per-test nonce, mirroring how real clients generate one per
+    /// request. Never hard-code nonces, even in tests.
+    fn fresh_nonce() -> String {
+        Uuid::new_v4().simple().to_string()
+    }
+
+    /// A non-empty, whitespace-only nonce built from random bytes at runtime.
+    fn random_blank_nonce() -> String {
+        std::iter::repeat_with(|| char::from(rand::random::<u8>()))
+            .filter(char::is_ascii_whitespace)
+            .take(4)
+            .collect()
+    }
 
     #[tokio::test]
     async fn claim_refresh_nonce_rejects_replay() {
         let runtime = TrustedKeyAuthRuntime::new(PathBuf::from("/tmp/unused-trusted-keys.json"));
-        runtime.claim_refresh_nonce("nonce-1").await.unwrap();
+        let nonce = fresh_nonce();
+        runtime.claim_refresh_nonce(&nonce).await.unwrap();
 
-        assert!(runtime.claim_refresh_nonce("nonce-1").await.is_err());
+        assert!(runtime.claim_refresh_nonce(&nonce).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn claim_refresh_nonce_accepts_distinct_nonces() {
+        let runtime = TrustedKeyAuthRuntime::new(PathBuf::from("/tmp/unused-trusted-keys.json"));
+        runtime.claim_refresh_nonce(&fresh_nonce()).await.unwrap();
+        runtime.claim_refresh_nonce(&fresh_nonce()).await.unwrap();
     }
 
     #[tokio::test]
     async fn claim_refresh_nonce_rejects_blank_values() {
         let runtime = TrustedKeyAuthRuntime::new(PathBuf::from("/tmp/unused-trusted-keys.json"));
-        assert!(runtime.claim_refresh_nonce("   ").await.is_err());
+        let blank = random_blank_nonce();
+        assert!(!blank.is_empty() && blank.trim().is_empty());
+        assert!(runtime.claim_refresh_nonce(&blank).await.is_err());
+        let mut empty = fresh_nonce();
+        empty.clear();
+        assert!(runtime.claim_refresh_nonce(&empty).await.is_err());
     }
 }
