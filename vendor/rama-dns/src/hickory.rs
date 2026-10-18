@@ -26,7 +26,7 @@ use crate::DnsResolver;
 
 #[derive(Debug, Clone)]
 /// [`DnsResolver`] using the [`hickory_resolver`] crate
-pub struct HickoryDns(Arc<TokioResolver>);
+pub struct HickoryDns(Arc<Result<TokioResolver, OpaqueError>>);
 
 impl Default for HickoryDns {
     #[cfg(any(target_family = "unix", target_os = "windows"))]
@@ -46,6 +46,13 @@ impl Default for HickoryDns {
 }
 
 impl HickoryDns {
+    fn resolver(&self) -> Result<&TokioResolver, OpaqueError> {
+        self.0
+            .as_ref()
+            .as_ref()
+            .map_err(|error| OpaqueError::from_display(error.to_string()))
+    }
+
     #[inline]
     /// Construct a [`HickoryDnsBuilder`] used to build
     /// a custom [`HickoryDns`] instead of the default [`HickoryDns::new`].
@@ -129,7 +136,7 @@ impl HickoryDns {
 
 impl From<TokioResolver> for HickoryDns {
     fn from(value: TokioResolver) -> Self {
-        Self(Arc::new(value))
+        Self(Arc::new(Ok(value)))
     }
 }
 
@@ -162,6 +169,7 @@ impl HickoryDnsBuilder {
     ///
     /// [`Clone`] the [`HickoryDnsBuilder`] prior to calling this method in case you
     /// still need the builder afterwards.
+    #[must_use]
     pub fn build(self) -> HickoryDns {
         let mut resolver_builder = TokioResolver::builder_with_config(
             self.config
@@ -174,7 +182,7 @@ impl HickoryDnsBuilder {
         HickoryDns(Arc::new(
             resolver_builder
                 .build()
-                .expect("unencrypted resolver construction cannot fail"),
+                .context("build configured DNS resolver"),
         ))
     }
 }
@@ -187,7 +195,7 @@ impl DnsResolver for HickoryDns {
 
         let mut results = vec![];
         for txt in self
-            .0
+            .resolver()?
             .txt_lookup(name)
             .await
             .context("lookup TXT entry")?
@@ -205,7 +213,7 @@ impl DnsResolver for HickoryDns {
     async fn ipv4_lookup(&self, domain: Domain) -> Result<Vec<Ipv4Addr>, Self::Error> {
         let name = fqdn_from_domain(domain)?;
         Ok(self
-            .0
+            .resolver()?
             .ipv4_lookup(name)
             .await
             .context("lookup IPv4 address(es)")?
@@ -221,7 +229,7 @@ impl DnsResolver for HickoryDns {
     async fn ipv6_lookup(&self, domain: Domain) -> Result<Vec<Ipv6Addr>, Self::Error> {
         let name = fqdn_from_domain(domain)?;
         Ok(self
-            .0
+            .resolver()?
             .ipv6_lookup(name)
             .await
             .context("lookup IPv6 address(es)")?
@@ -278,7 +286,7 @@ mod compatibility_tests {
                         RecordType::A => RData::A(A(Ipv4Addr::new(192, 0, 2, 42))),
                         RecordType::AAAA => RData::AAAA(AAAA("2001:db8::42".parse().unwrap())),
                         RecordType::TXT => {
-                            RData::TXT(TXT::new(vec!["first".into(), "second".into()]))
+                            RData::TXT(TXT::from_bytes(vec![b"first", &[0xff, 0x00, 0x80]]))
                         }
                         other => panic!("unexpected query {other:?}"),
                     };
@@ -320,7 +328,7 @@ mod compatibility_tests {
                     .txt_lookup(Domain::from_static("text.test"))
                     .await
                     .unwrap(),
-                vec![b"first".to_vec(), b"second".to_vec()]
+                vec![b"first".to_vec(), vec![0xff, 0x00, 0x80]]
             );
             assert!(
                 resolver
@@ -345,5 +353,37 @@ mod compatibility_tests {
                 .to_string(),
             "example.test."
         );
+    }
+    #[tokio::test]
+    async fn construction_errors_are_returned_by_all_lookup_types() {
+        let resolver = HickoryDns(Arc::new(Err(OpaqueError::from_display(
+            "invalid DNS configuration",
+        ))));
+        assert!(
+            resolver
+                .ipv4_lookup(Domain::from_static("example.test"))
+                .await
+                .is_err()
+        );
+        assert!(
+            resolver
+                .ipv6_lookup(Domain::from_static("example.test"))
+                .await
+                .is_err()
+        );
+        assert!(
+            resolver
+                .txt_lookup(Domain::from_static("example.test"))
+                .await
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn idna_domains_preserve_fully_qualified_punycode() {
+        let name = fqdn_from_domain(Domain::from_static("xn--bcher-kva.test")).unwrap();
+        assert_eq!(name.to_ascii(), "xn--bcher-kva.test.");
+        assert_eq!(name.to_string(), "bücher.test.");
+        assert_eq!(name, Name::from_utf8("bücher.test.").unwrap());
     }
 }
