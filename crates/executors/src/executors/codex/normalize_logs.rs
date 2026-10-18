@@ -2559,7 +2559,7 @@ fn handle_jsonrpc_response(
     entry_index: &EntryIndexProvider,
     model_params: &mut ModelParamsState,
 ) {
-    if let Ok(resp) = serde_json::from_value::<ThreadSessionResponse>(response.result.clone()) {
+    if let Ok(resp) = serde_json::from_value::<ThreadSessionResponse>(response.result) {
         msg_store.push_session_id(resp.thread.id);
         handle_model_params(
             Some(resp.model),
@@ -2568,7 +2568,6 @@ fn handle_jsonrpc_response(
             entry_index,
             model_params,
         );
-        return;
     }
 }
 
