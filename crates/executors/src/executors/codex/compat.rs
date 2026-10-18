@@ -74,6 +74,10 @@ mod tests {
             serde_json::from_str(include_str!("fixtures/thread-start-0.124.json")).unwrap();
         let read: ThreadReadResponse =
             serde_json::from_str(include_str!("fixtures/thread-read-0.124.json")).unwrap();
+        let fork: ThreadSessionResponse =
+            serde_json::from_str(include_str!("fixtures/thread-fork-0.124.json")).unwrap();
+        assert_ne!(fork.thread.id, start.thread.id);
+        assert_eq!(fork.model, start.model);
         assert_eq!(start.thread.id, read.thread.id);
         assert_eq!(start.model, "gpt-5.4");
         assert_eq!(read.thread.cli_version, "0.124.0");
