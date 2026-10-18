@@ -501,7 +501,9 @@ impl Codex {
                 .get_or_insert_with(HashMap::new)
                 .insert("compact_prompt".to_string(), Value::String(compact.clone()));
         }
-        if !matches!(approval_policy, None | Some(V2AskForApproval::Never)) {
+        if matches!(self.ask_for_approval, Some(AskForApproval::OnFailure))
+            || !matches!(approval_policy, None | Some(V2AskForApproval::Never))
+        {
             let map = config.get_or_insert_with(HashMap::new);
             map.insert(
                 "features.default_mode_request_user_input".to_string(),
@@ -781,7 +783,9 @@ mod tests {
         .unwrap();
         let params = executor.build_thread_start_params(Path::new("/tmp/work"));
         assert!(params.approval_policy.is_none());
-        assert_eq!(params.config.unwrap()["approval_policy"], "on-failure");
+        let config = params.config.unwrap();
+        assert_eq!(config["approval_policy"], "on-failure");
+        assert_eq!(config["features.default_mode_request_user_input"], true);
         assert_eq!(params.service_tier, Some(Some("fast".to_string())));
     }
 
