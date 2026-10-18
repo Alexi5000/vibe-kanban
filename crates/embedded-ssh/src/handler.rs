@@ -5,13 +5,12 @@
 
 use std::{collections::HashMap, process::Stdio};
 
-use async_trait::async_trait;
 use relay_control::signing::RelaySigningService;
 use russh::{
-    Channel, ChannelId, CryptoVec, Pty,
+    Channel, ChannelId, Pty,
+    keys::PublicKey,
     server::{Auth, Msg, Session},
 };
-use russh_keys::PublicKey;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     process::Command,
@@ -126,7 +125,7 @@ impl SshSessionHandler {
                 match stdout.read(&mut buf).await {
                     Ok(0) => break,
                     Ok(n) => {
-                        let data = CryptoVec::from_slice(&buf[..n]);
+                        let data = buf[..n].to_vec();
                         if handle.data(channel_id, data).await.is_err() {
                             break;
                         }
@@ -147,7 +146,7 @@ impl SshSessionHandler {
                 match stderr.read(&mut buf).await {
                     Ok(0) => break,
                     Ok(n) => {
-                        let data = CryptoVec::from_slice(&buf[..n]);
+                        let data = buf[..n].to_vec();
                         if handle.extended_data(channel_id, 1, data).await.is_err() {
                             break;
                         }
@@ -207,7 +206,6 @@ impl Drop for SshSessionHandler {
     }
 }
 
-#[async_trait]
 impl russh::server::Handler for SshSessionHandler {
     type Error = anyhow::Error;
 
@@ -222,6 +220,7 @@ impl russh::server::Handler for SshSessionHandler {
             None => {
                 return Ok(Auth::Reject {
                     proceed_with_methods: None,
+                    partial_success: false,
                 });
             }
         };
@@ -239,6 +238,7 @@ impl russh::server::Handler for SshSessionHandler {
             tracing::debug!("SSH auth rejected: no matching signing session");
             Ok(Auth::Reject {
                 proceed_with_methods: None,
+                partial_success: false,
             })
         }
     }
@@ -246,8 +246,9 @@ impl russh::server::Handler for SshSessionHandler {
     async fn channel_open_session(
         &mut self,
         channel: Channel<Msg>,
+        reply: russh::server::ChannelOpenHandle,
         _session: &mut Session,
-    ) -> Result<bool, Self::Error> {
+    ) -> Result<(), Self::Error> {
         let id = channel.id();
         self.channels.insert(
             id,
@@ -256,7 +257,8 @@ impl russh::server::Handler for SshSessionHandler {
                 env: HashMap::new(),
             },
         );
-        Ok(true)
+        reply.accept().await;
+        Ok(())
     }
 
     async fn pty_request(
@@ -282,8 +284,9 @@ impl russh::server::Handler for SshSessionHandler {
         port_to_connect: u32,
         originator_address: &str,
         originator_port: u32,
+        reply: russh::server::ChannelOpenHandle,
         _session: &mut Session,
-    ) -> Result<bool, Self::Error> {
+    ) -> Result<(), Self::Error> {
         if port_to_connect == 0 || port_to_connect > u16::MAX as u32 {
             tracing::warn!(
                 %host_to_connect,
@@ -292,7 +295,7 @@ impl russh::server::Handler for SshSessionHandler {
                 originator_port,
                 "direct-tcpip denied: invalid target port"
             );
-            return Ok(false);
+            return Ok(());
         }
 
         if !Self::is_loopback_target(host_to_connect) {
@@ -303,7 +306,7 @@ impl russh::server::Handler for SshSessionHandler {
                 originator_port,
                 "direct-tcpip denied: non-loopback target"
             );
-            return Ok(false);
+            return Ok(());
         }
 
         let port = port_to_connect as u16;
@@ -334,7 +337,8 @@ impl russh::server::Handler for SshSessionHandler {
             let _ = ssh_stream.shutdown().await;
         });
 
-        Ok(true)
+        reply.accept().await;
+        Ok(())
     }
 
     async fn tcpip_forward(
@@ -556,5 +560,48 @@ impl russh::server::Handler for SshSessionHandler {
             let _ = std::mem::replace(writer_tx, replacement_tx);
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ed25519_dalek::SigningKey;
+    use russh::server::Handler;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn only_accepts_keys_with_an_active_relay_session() {
+        let server_key = SigningKey::from_bytes(&[7; 32]);
+        let peer_key = SigningKey::from_bytes(&[8; 32]);
+        let signing = RelaySigningService::new(server_key);
+        let public = crate::config::build_config(&peer_key).keys[0]
+            .public_key()
+            .clone();
+        let mut handler = SshSessionHandler::new(signing.clone());
+        assert!(matches!(
+            handler.auth_publickey("peer", &public).await.unwrap(),
+            Auth::Reject {
+                partial_success: false,
+                ..
+            }
+        ));
+        signing.create_session(peer_key.verifying_key()).await;
+        assert!(matches!(
+            handler.auth_publickey("peer", &public).await.unwrap(),
+            Auth::Accept
+        ));
+    }
+
+    #[test]
+    fn forwarding_stays_restricted_to_loopback() {
+        for host in ["localhost", "127.0.0.1", "::1"] {
+            assert!(SshSessionHandler::is_loopback_target(host));
+            assert!(SshSessionHandler::normalize_loopback_bind_address(host).is_some());
+        }
+        for host in ["0.0.0.0", "::", "example.com", "192.168.1.1"] {
+            assert!(!SshSessionHandler::is_loopback_target(host));
+            assert!(SshSessionHandler::normalize_loopback_bind_address(host).is_none());
+        }
     }
 }
