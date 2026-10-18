@@ -20,7 +20,7 @@
     "web-core:format": "pnpm --filter @vibe/web-core run format",
     "web-core:check": "pnpm --filter @vibe/web-core run check",
     "local-web:dev": "cd packages/local-web && pnpm run dev -- --port ${FRONTEND_PORT:-3000}",
-    "local-web:check": "pnpm --filter @vibe/local-web run check",
+    "local-web:check": "node scripts/verify-braces.cjs && pnpm --filter @vibe/local-web run check",
     "remote-web:check": "pnpm --filter @vibe/remote-web run check",
     "local-web:format": "pnpm --filter @vibe/local-web run format",
     "remote-web:format": "pnpm --filter @vibe/remote-web run format",
@@ -66,11 +66,22 @@
     "esbuild": "^0.28.2",
     "jwt-decode": "^4.0.0",
     "typescript": "^5.9.3",
-    "vite": "^7.3.7"
+    "vite": "^7.3.7",
+    "braces": "file:vendor/braces-3.0.3.tgz"
   },
   "engines": {
     "node": ">=20",
     "pnpm": ">=8"
   },
-  "packageManager": "pnpm@10.13.1"
+  "packageManager": "pnpm@10.13.1",
+  "pnpm": {
+    "overrides": {
+      "katex@<0.18.2": "^0.19.0",
+      "postcss-selector-parser@<7.1.6": "^7.1.6",
+      "minimatch@>=9 <9.0.7": "^9.0.7",
+      "diff@>=6 <8.0.3": "^8.0.3",
+      "braces": "file:vendor/braces-3.0.3.tgz",
+      "yaml@>=2 <2.8.3": "^2.8.3"
+    }
+  }
 }

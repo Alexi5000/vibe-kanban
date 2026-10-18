@@ -6,7 +6,7 @@ use executors::executors::BaseCodingAgent;
 use regex::Regex;
 use rmcp::{
     ErrorData,
-    model::{CallToolResult, Content},
+    model::{CallToolResult, ContentBlock},
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use thiserror::Error;
@@ -85,7 +85,7 @@ impl McpServer {
     }
 
     fn success<T: Serialize>(data: &T) -> ToolCallResult {
-        Ok(CallToolResult::success(vec![Content::text(
+        Ok(CallToolResult::success(vec![ContentBlock::text(
             serde_json::to_string_pretty(data)
                 .unwrap_or_else(|_| "Failed to serialize response".to_string()),
         )]))
@@ -104,7 +104,7 @@ impl McpServer {
             value["details"] = serde_json::json!(details);
         }
 
-        CallToolResult::error(vec![Content::text(
+        CallToolResult::error(vec![ContentBlock::text(
             serde_json::to_string_pretty(&value)
                 .unwrap_or_else(|_| "Failed to serialize error".to_string()),
         )])
@@ -394,6 +394,28 @@ mod tests {
     use crate::task_server::{McpContext, McpMode, McpRepoContext};
 
     static RUSTLS_PROVIDER: Once = Once::new();
+
+    #[test]
+    fn tool_results_preserve_text_content_on_the_wire() {
+        let result = McpServer::success(&serde_json::json!({"ok": true})).unwrap();
+        let wire = serde_json::to_value(result).unwrap();
+        assert_eq!(wire["content"][0]["type"], "text");
+        let payload: serde_json::Value =
+            serde_json::from_str(wire["content"][0]["text"].as_str().unwrap()).unwrap();
+        assert_eq!(payload["ok"], true);
+    }
+
+    #[test]
+    fn tool_errors_preserve_error_status_and_details() {
+        let result = McpServer::err("denied", Some("outside workspace")).unwrap();
+        let wire = serde_json::to_value(result).unwrap();
+        assert_eq!(wire["isError"], true);
+        let payload: serde_json::Value =
+            serde_json::from_str(wire["content"][0]["text"].as_str().unwrap()).unwrap();
+        assert_eq!(payload["success"], false);
+        assert_eq!(payload["error"], "denied");
+        assert_eq!(payload["details"], "outside workspace");
+    }
 
     fn install_rustls_provider() {
         RUSTLS_PROVIDER.call_once(|| {
