@@ -695,6 +695,11 @@ pub async fn create_workspace_from_pr(
     State(deployment): State<DeploymentImpl>,
     Json(payload): Json<CreateWorkspaceFromPrBody>,
 ) -> Result<ResponseJson<ApiResponse<CreateWorkspaceFromPrResponse, CreateFromPrError>>, ApiError> {
+    if !deployment.git().is_branch_name_valid(&payload.head_branch) {
+        return Err(ApiError::BadRequest(
+            "Invalid pull request head branch".to_string(),
+        ));
+    }
     let pool = &deployment.db().pool;
 
     let repo = Repo::find_by_id(pool, payload.repo_id)
