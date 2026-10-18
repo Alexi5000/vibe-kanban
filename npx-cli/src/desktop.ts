@@ -208,6 +208,7 @@ async function installAndLaunchWindows(
   try {
     // NSIS supports /S for silent install and /D= for install directory
     execFileSync(installerPath, ["/S", `/D=${installDir}`], {
+      windowsVerbatimArguments: true,
       stdio: "inherit",
       timeout: 120000,
     });
