@@ -1413,3 +1413,40 @@ fn network_operations_preserve_local_remote_roundtrip() {
     );
     git.push(&local, remote, "main", true).unwrap();
 }
+
+#[test]
+fn rebase_rejects_exec_option_in_branch_operand() {
+    let root = TempDir::new().unwrap();
+    let (_repo_path, worktree_path) = setup_repo_with_worktree(&root);
+    let repo = Repository::open(&worktree_path).unwrap();
+    let original_head = repo.head().unwrap().target().unwrap();
+    let sentinel = root.path().join("rebase-option-executed");
+    let injected_branch = format!("--exec=printf injected > '{}'", sentinel.display());
+
+    let result =
+        GitCli::new().rebase_onto(&worktree_path, "new-base", "old-base", &injected_branch);
+
+    assert!(
+        !sentinel.exists(),
+        "Git executed the injected branch option"
+    );
+    assert!(result.is_err(), "An option-shaped branch must be rejected");
+    assert_eq!(repo.head().unwrap().target().unwrap(), original_head);
+}
+
+#[test]
+fn pull_request_branch_validation_preserves_normal_names() {
+    let service = GitService::new();
+    for branch in ["main", "feature/provider-auth", "release/v1.2", "fix-123"] {
+        assert!(service.is_branch_name_valid(branch), "{branch}");
+    }
+    for branch in [
+        "",
+        "--exec=echo",
+        "bad name",
+        "../escape",
+        "feature..broken",
+    ] {
+        assert!(!service.is_branch_name_valid(branch), "{branch}");
+    }
+}

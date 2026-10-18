@@ -521,8 +521,8 @@ impl GitCli {
         b: &str,
     ) -> Result<String, GitCliError> {
         let out = self
-            .git(worktree_path, ["merge-base", "--fork-point", a, b])
-            .unwrap_or(self.git(worktree_path, ["merge-base", a, b])?);
+            .git(worktree_path, ["merge-base", "--fork-point", "--", a, b])
+            .unwrap_or(self.git(worktree_path, ["merge-base", "--", a, b])?);
         Ok(out.trim().to_string())
     }
 
@@ -546,7 +546,7 @@ impl GitCli {
 
         self.git(
             worktree_path,
-            ["rebase", "--onto", new_base, &merge_base, task_branch],
+            ["rebase", "--onto", new_base, "--", &merge_base, task_branch],
         )?;
         Ok(())
     }
