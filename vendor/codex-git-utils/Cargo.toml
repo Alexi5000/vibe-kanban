@@ -1,0 +1,73 @@
+[package]
+"name" = "codex-git-utils"
+"version" = "0.147.0"
+"edition" = "2024"
+"license" = "Apache-2.0"
+"readme" = "README.md"
+
+[lints.rust]
+
+[lints.clippy]
+"await_holding_invalid_type" = "deny"
+"await_holding_lock" = "deny"
+"disallowed_methods" = "deny"
+"expect_used" = "deny"
+"identity_op" = "deny"
+"manual_clamp" = "deny"
+"manual_filter" = "deny"
+"manual_find" = "deny"
+"manual_flatten" = "deny"
+"manual_map" = "deny"
+"manual_memcpy" = "deny"
+"manual_non_exhaustive" = "deny"
+"manual_ok_or" = "deny"
+"manual_range_contains" = "deny"
+"manual_retain" = "deny"
+"manual_strip" = "deny"
+"manual_try_fold" = "deny"
+"manual_unwrap_or" = "deny"
+"needless_borrow" = "deny"
+"needless_borrowed_reference" = "deny"
+"needless_collect" = "deny"
+"needless_late_init" = "deny"
+"needless_option_as_deref" = "deny"
+"needless_question_mark" = "deny"
+"needless_update" = "deny"
+"redundant_clone" = "deny"
+"redundant_closure" = "deny"
+"redundant_closure_for_method_calls" = "deny"
+"redundant_static_lifetimes" = "deny"
+"trivially_copy_pass_by_ref" = "deny"
+"uninlined_format_args" = "deny"
+"unnecessary_filter_map" = "deny"
+"unnecessary_lazy_evaluations" = "deny"
+"unnecessary_sort_by" = "deny"
+"unnecessary_to_owned" = "deny"
+"unwrap_used" = "deny"
+
+[dependencies]
+"anyhow" = { "version" = "1" }
+"chrono" = { "version" = "0.4.43" }
+"codex-file-system" = { "git" = "https://github.com/openai/codex.git", "tag" = "rust-v0.147.0" }
+"codex-protocol" = { "git" = "https://github.com/openai/codex.git", "tag" = "rust-v0.147.0" }
+"codex-utils-absolute-path" = { "git" = "https://github.com/openai/codex.git", "tag" = "rust-v0.147.0" }
+"codex-utils-path-uri" = { "git" = "https://github.com/openai/codex.git", "tag" = "rust-v0.147.0" }
+"codex-utils-pty" = { "git" = "https://github.com/openai/codex.git", "tag" = "rust-v0.147.0" }
+"futures" = { "version" = "0.3", "default-features" = false, "features" = ["alloc"] }
+"gix" = { "version" = "0.83.0", "default-features" = false, "features" = ["sha1"] }
+"once_cell" = { "version" = "1.20.2" }
+"regex" = "1"
+"schemars" = { "version" = "0.8.22" }
+"serde" = { "version" = "1", "features" = ["rc", "derive"] }
+"similar" = { "version" = "2.7.0" }
+"tempfile" = { "version" = "3.23.0" }
+"thiserror" = { "version" = "2.0.17" }
+"tokio" = { "version" = "1", "features" = ["macros", "process", "rt", "time"] }
+"ts-rs" = { "version" = "11", "features" = ["uuid-impl", "serde-json-impl", "no-serde-warnings"] }
+"walkdir" = { "version" = "2.5.0" }
+
+[dev-dependencies]
+"pretty_assertions" = { "version" = "1.4.1" }
+
+[lib]
+"doctest" = false
