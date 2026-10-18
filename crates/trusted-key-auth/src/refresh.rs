@@ -56,16 +56,23 @@ mod tests {
         SigningKey::from_bytes(&[seed; 32])
     }
 
+    /// Fresh per-test nonce, mirroring how real clients generate one per
+    /// request. Never hard-code nonces, even in tests.
+    fn fresh_nonce() -> String {
+        Uuid::new_v4().simple().to_string()
+    }
+
     #[test]
     fn build_refresh_message_is_stable() {
+        let nonce = fresh_nonce();
         let message = build_refresh_message(
             1_700_000_000,
-            "nonce-123",
+            &nonce,
             Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap(),
         );
         assert_eq!(
             message,
-            "v1|refresh|1700000000|nonce-123|11111111-1111-1111-1111-111111111111"
+            format!("v1|refresh|1700000000|{nonce}|11111111-1111-1111-1111-111111111111")
         );
     }
 
@@ -73,7 +80,7 @@ mod tests {
     fn verify_refresh_signature_accepts_valid_signature() {
         let signing_key = signing_key(9);
         let client_id = Uuid::new_v4();
-        let message = build_refresh_message(1_700_000_000, "nonce", client_id);
+        let message = build_refresh_message(1_700_000_000, &fresh_nonce(), client_id);
         let signature_b64 = BASE64_STANDARD.encode(signing_key.sign(message.as_bytes()).to_bytes());
 
         verify_refresh_signature(&signing_key.verifying_key(), &message, &signature_b64).unwrap();
@@ -84,7 +91,7 @@ mod tests {
         let trusted_key = signing_key(11);
         let attacker_key = signing_key(13);
         let client_id = Uuid::new_v4();
-        let message = build_refresh_message(1_700_000_000, "nonce", client_id);
+        let message = build_refresh_message(1_700_000_000, &fresh_nonce(), client_id);
         let signature_b64 =
             BASE64_STANDARD.encode(attacker_key.sign(message.as_bytes()).to_bytes());
 
