@@ -396,3 +396,45 @@ fn csv_error(e: &csv::Error) -> ErrorResponse {
 fn zip_error(e: &zip::result::ZipError) -> ErrorResponse {
     ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use std::io::{Cursor, Read, Write};
+
+    use zip::{CompressionMethod, ZipArchive, ZipWriter, write::SimpleFileOptions};
+
+    #[test]
+    fn export_archive_preserves_csv_and_binary_entries() {
+        let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
+        writer
+            .start_file(
+                "issues.csv",
+                SimpleFileOptions::default().compression_method(CompressionMethod::Deflated),
+            )
+            .unwrap();
+        writer.write_all(b"id,title\n1,hello\n").unwrap();
+        writer
+            .start_file(
+                "attachments/image.bin",
+                SimpleFileOptions::default().compression_method(CompressionMethod::Stored),
+            )
+            .unwrap();
+        writer.write_all(&[0, 255, 42]).unwrap();
+        let mut archive = ZipArchive::new(writer.finish().unwrap()).unwrap();
+        assert_eq!(archive.len(), 2);
+        let mut csv = String::new();
+        archive
+            .by_name("issues.csv")
+            .unwrap()
+            .read_to_string(&mut csv)
+            .unwrap();
+        assert_eq!(csv, "id,title\n1,hello\n");
+        let mut bytes = Vec::new();
+        archive
+            .by_name("attachments/image.bin")
+            .unwrap()
+            .read_to_end(&mut bytes)
+            .unwrap();
+        assert_eq!(bytes, [0, 255, 42]);
+    }
+}

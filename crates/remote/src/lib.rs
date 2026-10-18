@@ -1,3 +1,13 @@
+// The public manifest does not reference the private billing source. Enabling
+// `vk-billing` without first running `scripts/enable-private-billing.sh` would
+// otherwise produce a confusing "unresolved crate `billing`" error.
+#[cfg(feature = "private-billing-source-missing")]
+compile_error!(
+    "the `vk-billing` feature requires the private billing source: run \
+     `crates/remote/scripts/enable-private-billing.sh` (needs access to \
+     BloopAI/vibe-kanban-private) before building with `--features vk-billing`"
+);
+
 mod analytics;
 mod app;
 pub mod attachments;
@@ -51,7 +61,7 @@ where
 
     // Create the background client using std::thread::spawn.
     // https://github.com/frigus02/opentelemetry-application-insights/blob/6d3ac4505c0c47e448bb8de4ac67d904f8eacb76/src/lib.rs#L168
-    let http_client = std::thread::spawn(otel_reqwest::blocking::Client::new)
+    let http_client = std::thread::spawn(reqwest::blocking::Client::new)
         .join()
         .ok()?;
 

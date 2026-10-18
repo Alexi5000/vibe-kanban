@@ -159,3 +159,24 @@ To run the desktop/local app against this remote stack:
 export VK_SHARED_API_BASE=http://localhost:3000
 pnpm run dev
 ```
+
+## Public and hosted billing builds
+
+The default remote install resolves entirely from public sources using the committed
+lockfile. Cargo resolves optional dependencies even when disabled, so the private
+billing dependency must be materialized only in a hosted build checkout.
+
+Hosted builds retain the existing `vk-billing` code and original private commit.
+With SSH access to `BloopAI/vibe-kanban-private`, run:
+
+```bash
+bash crates/remote/scripts/enable-private-billing.sh
+cargo build --locked --manifest-path crates/remote/Cargo.toml --features vk-billing
+```
+
+The script changes only the build checkout manifest and lockfile. Do not commit
+those private-build changes. `VK_BILLING_REV` can pin another reviewed commit.
+Enabling billing without materializing its source fails compilation rather than
+silently disabling billing. Docker `FEATURES=vk-billing` performs this step using
+the existing BuildKit SSH mount. Private billing still requires independent
+compilation and integration testing in an environment with private-source access.
