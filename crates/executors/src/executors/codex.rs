@@ -1,4 +1,5 @@
 pub mod client;
+mod compat;
 pub mod jsonrpc;
 pub mod normalize_logs;
 pub mod review;
@@ -52,7 +53,6 @@ use codex_app_server_protocol::{
     AskForApproval as V2AskForApproval, ReviewTarget, SandboxMode as V2SandboxMode,
     ThreadForkParams, ThreadStartParams, UserInput,
 };
-use codex_protocol::config_types::ServiceTier;
 use derivative::Derivative;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -473,12 +473,18 @@ impl Codex {
             }
             None => None,
             Some(AskForApproval::UnlessTrusted) => Some(V2AskForApproval::UnlessTrusted),
-            Some(AskForApproval::OnFailure) => Some(V2AskForApproval::OnFailure),
+            Some(AskForApproval::OnFailure) => None,
             Some(AskForApproval::OnRequest) => Some(V2AskForApproval::OnRequest),
             Some(AskForApproval::Never) => Some(V2AskForApproval::Never),
         };
 
         let mut config = self.build_config_overrides();
+        if matches!(self.ask_for_approval, Some(AskForApproval::OnFailure)) {
+            config.get_or_insert_with(HashMap::new).insert(
+                "approval_policy".to_string(),
+                Value::String("on-failure".to_string()),
+            );
+        }
         // V1 top-level params that moved into config overrides in v2
         if let Some(profile) = &self.profile {
             config
@@ -495,7 +501,9 @@ impl Codex {
                 .get_or_insert_with(HashMap::new)
                 .insert("compact_prompt".to_string(), Value::String(compact.clone()));
         }
-        if !matches!(approval_policy, None | Some(V2AskForApproval::Never)) {
+        if matches!(self.ask_for_approval, Some(AskForApproval::OnFailure))
+            || !matches!(approval_policy, None | Some(V2AskForApproval::Never))
+        {
             let map = config.get_or_insert_with(HashMap::new);
             map.insert(
                 "features.default_mode_request_user_input".to_string(),
@@ -509,7 +517,7 @@ impl Codex {
 
         let (model, is_fast) = resolve_model(self.model.as_deref());
         let service_tier = if is_fast {
-            Some(Some(ServiceTier::Fast))
+            Some(Some("fast".to_string()))
         } else {
             None
         };
@@ -763,7 +771,23 @@ impl Codex {
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_model;
+    use std::path::Path;
+
+    use super::{Codex, resolve_model};
+
+    #[test]
+    fn preserves_legacy_failure_approval_and_fast_tier() {
+        let executor: Codex = serde_json::from_value(serde_json::json!({
+            "ask_for_approval": "on-failure", "model": "gpt-5.5-fast"
+        }))
+        .unwrap();
+        let params = executor.build_thread_start_params(Path::new("/tmp/work"));
+        assert!(params.approval_policy.is_none());
+        let config = params.config.unwrap();
+        assert_eq!(config["approval_policy"], "on-failure");
+        assert_eq!(config["features.default_mode_request_user_input"], true);
+        assert_eq!(params.service_tier, Some(Some("fast".to_string())));
+    }
 
     #[test]
     fn resolve_model_detects_fast_suffix() {

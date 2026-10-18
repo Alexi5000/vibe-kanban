@@ -11,15 +11,14 @@ use async_trait::async_trait;
 use codex_app_server_protocol::{
     ClientInfo, ClientNotification, ClientRequest, CommandExecutionApprovalDecision,
     CommandExecutionRequestApprovalResponse, ConfigBatchWriteParams, ConfigEdit, ConfigReadParams,
-    ConfigReadResponse, ConfigWriteResponse, DynamicToolCallOutputContentItem,
-    DynamicToolCallResponse, FileChangeApprovalDecision, FileChangeRequestApprovalResponse,
-    GetAccountParams, GetAccountRateLimitsResponse, GetAccountResponse, InitializeCapabilities,
-    InitializeParams, InitializeResponse, ItemCompletedNotification, JSONRPCError,
-    JSONRPCNotification, JSONRPCRequest, JSONRPCResponse, ListMcpServerStatusParams,
-    ListMcpServerStatusResponse, McpServerStatusDetail, RequestId, ReviewStartParams,
-    ReviewStartResponse, ReviewTarget, ServerRequest, ThreadCompactStartParams,
-    ThreadCompactStartResponse, ThreadForkParams, ThreadForkResponse, ThreadItem, ThreadReadParams,
-    ThreadReadResponse, ThreadStartParams, ThreadStartResponse, ToolRequestUserInputAnswer,
+    ConfigWriteResponse, DynamicToolCallOutputContentItem, DynamicToolCallResponse,
+    FileChangeApprovalDecision, FileChangeRequestApprovalResponse, GetAccountParams,
+    GetAccountRateLimitsResponse, GetAccountResponse, InitializeCapabilities, InitializeParams,
+    InitializeResponse, ItemCompletedNotification, JSONRPCError, JSONRPCNotification,
+    JSONRPCRequest, JSONRPCResponse, ListMcpServerStatusParams, ListMcpServerStatusResponse,
+    McpServerStatusDetail, RequestId, ReviewStartParams, ReviewStartResponse, ReviewTarget,
+    ServerRequest, ThreadCompactStartParams, ThreadCompactStartResponse, ThreadForkParams,
+    ThreadItem, ThreadReadParams, ThreadStartParams, ToolRequestUserInputAnswer,
     ToolRequestUserInputQuestion, ToolRequestUserInputResponse, TurnCompletedNotification,
     TurnStartParams, TurnStartResponse, TurnStatus, UserInput,
 };
@@ -34,7 +33,10 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 use workspace_utils::approvals::{ApprovalStatus, QuestionStatus};
 
-use super::jsonrpc::{JsonRpcCallbacks, JsonRpcPeer};
+use super::{
+    compat::{ConfigReadResponse, ThreadReadResponse, ThreadSessionResponse, adapt_params},
+    jsonrpc::{JsonRpcCallbacks, JsonRpcPeer},
+};
 use crate::{
     approvals::{ExecutorApprovalError, ExecutorApprovalService},
     env::RepoContext,
@@ -132,7 +134,7 @@ impl AppServerClient {
     pub async fn thread_start(
         &self,
         params: ThreadStartParams,
-    ) -> Result<ThreadStartResponse, ExecutorError> {
+    ) -> Result<ThreadSessionResponse, ExecutorError> {
         let request = ClientRequest::ThreadStart {
             request_id: self.next_request_id(),
             params,
@@ -143,7 +145,7 @@ impl AppServerClient {
     pub async fn thread_fork(
         &self,
         params: ThreadForkParams,
-    ) -> Result<ThreadForkResponse, ExecutorError> {
+    ) -> Result<ThreadSessionResponse, ExecutorError> {
         let request = ClientRequest::ThreadFork {
             request_id: self.next_request_id(),
             params,
@@ -227,6 +229,7 @@ impl AppServerClient {
         let request = ClientRequest::McpServerStatusList {
             request_id: self.next_request_id(),
             params: ListMcpServerStatusParams {
+                thread_id: None,
                 cursor,
                 limit: None,
                 detail: Some(McpServerStatusDetail::ToolsAndAuthOnly),
@@ -428,6 +431,17 @@ impl AppServerClient {
                 };
                 send_server_response(peer, request_id, response).await?;
                 Ok(())
+            }
+            ServerRequest::AttestationGenerate { .. } | ServerRequest::CurrentTimeRead { .. } => {
+                let response = JSONRPCError {
+                    id: request.id().clone(),
+                    error: codex_app_server_protocol::JSONRPCErrorError {
+                        code: -32601,
+                        message: "Server request is not supported by this client".to_string(),
+                        data: None,
+                    },
+                };
+                peer.send(&response).await
             }
             ServerRequest::ChatgptAuthTokensRefresh { .. }
             | ServerRequest::McpServerElicitationRequest { .. }
@@ -815,9 +829,12 @@ impl JsonRpcCallbacks for AppServerClient {
         &self,
         peer: &JsonRpcPeer,
         raw: &str,
-        request: JSONRPCRequest,
+        mut request: JSONRPCRequest,
     ) -> Result<(), ExecutorError> {
         self.log_writer.log_raw(raw).await?;
+        if let Some(params) = request.params.as_mut() {
+            adapt_params(&request.method, params);
+        }
         match ServerRequest::try_from(request.clone()) {
             Ok(server_request) => self.handle_server_request(peer, server_request).await,
             Err(err) => {
@@ -853,9 +870,12 @@ impl JsonRpcCallbacks for AppServerClient {
         &self,
         _peer: &JsonRpcPeer,
         raw: &str,
-        notification: JSONRPCNotification,
+        mut notification: JSONRPCNotification,
     ) -> Result<bool, ExecutorError> {
         self.log_writer.log_raw(raw).await?;
+        if let Some(params) = notification.params.as_mut() {
+            adapt_params(&notification.method, params);
+        }
 
         let method = notification.method.as_str();
 
