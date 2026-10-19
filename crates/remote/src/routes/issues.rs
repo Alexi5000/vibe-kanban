@@ -519,9 +519,8 @@ async fn bulk_update_issues(
         ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
     })?;
 
-    let mut results = Vec::with_capacity(payload.updates.len().min(super::MAX_BULK_UPDATES));
-    let mut notification_pairs =
-        Vec::with_capacity(payload.updates.len().min(super::MAX_BULK_UPDATES));
+    let mut results = Vec::new();
+    let mut notification_pairs = Vec::new();
 
     for item in payload.updates {
         // Verify issue belongs to the same project

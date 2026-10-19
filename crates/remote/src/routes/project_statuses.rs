@@ -267,7 +267,7 @@ async fn bulk_update_project_statuses(
         ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
     })?;
 
-    let mut results = Vec::with_capacity(payload.updates.len().min(super::MAX_BULK_UPDATES));
+    let mut results = Vec::new();
 
     for item in payload.updates {
         // Verify status belongs to the same project

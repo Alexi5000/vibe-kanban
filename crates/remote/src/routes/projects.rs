@@ -210,7 +210,7 @@ async fn bulk_update_projects(
         ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
     })?;
 
-    let mut results = Vec::with_capacity(payload.updates.len().min(super::MAX_BULK_UPDATES));
+    let mut results = Vec::new();
 
     for item in payload.updates {
         let project = ProjectRepository::find_by_id(&mut *tx, item.id)

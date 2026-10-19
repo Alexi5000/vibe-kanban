@@ -265,7 +265,7 @@ async fn bulk_update_notifications(
         ));
     }
 
-    let mut results = Vec::with_capacity(payload.updates.len().min(super::MAX_BULK_UPDATES));
+    let mut results = Vec::new();
 
     for item in payload.updates {
         let existing = NotificationRepository::find_by_id(&mut *tx, item.id)
