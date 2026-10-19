@@ -600,6 +600,28 @@ impl GitCli {
         out
     }
 
+    fn resolved_revision(
+        &self,
+        repo_path: &Path,
+        revision: &str,
+    ) -> Result<(String, Option<String>), GitCliError> {
+        ensure_not_option("revision", revision)?;
+        let repo = git2::Repository::open(repo_path)
+            .map_err(|err| GitCliError::InvalidOperand(err.to_string()))?;
+        let (object, reference) = repo
+            .revparse_ext(revision)
+            .map_err(|err| GitCliError::InvalidOperand(err.to_string()))?;
+        let commit = object
+            .peel_to_commit()
+            .map_err(|err| GitCliError::InvalidOperand(err.to_string()))?;
+        let oid = commit.id();
+        let reference = reference
+            .and_then(|reference| reference.resolve().ok())
+            .filter(|reference| reference.target() == Some(oid))
+            .and_then(|reference| reference.name().map(str::to_owned));
+        Ok((oid.to_string(), reference))
+    }
+
     /// Return the merge base commit sha of two refs in the given worktree.
     /// If `git merge-base --fork-point` fails, falls back to regular `merge-base`.
     pub fn merge_base(
@@ -608,11 +630,15 @@ impl GitCli {
         a: &str,
         b: &str,
     ) -> Result<String, GitCliError> {
-        ensure_not_option("revision", a)?;
-        ensure_not_option("revision", b)?;
+        let (a_oid, a_reference) = self.resolved_revision(worktree_path, a)?;
+        let (b_oid, _) = self.resolved_revision(worktree_path, b)?;
+        let fork_point_ref = a_reference.as_deref().unwrap_or(&a_oid);
         let out = self
-            .git(worktree_path, ["merge-base", "--fork-point", "--", a, b])
-            .unwrap_or(self.git(worktree_path, ["merge-base", "--", a, b])?);
+            .git(
+                worktree_path,
+                ["merge-base", "--fork-point", "--", fork_point_ref, &b_oid],
+            )
+            .or_else(|_| self.git(worktree_path, ["merge-base", "--", &a_oid, &b_oid]))?;
         Ok(out.trim().to_string())
     }
 
@@ -629,8 +655,8 @@ impl GitCli {
         if self.is_rebase_in_progress(worktree_path).unwrap_or(false) {
             return Err(GitCliError::RebaseInProgress);
         }
-        ensure_not_option("new base", new_base)?;
-        ensure_not_option("old base", old_base)?;
+        let (new_base_oid, _) = self.resolved_revision(worktree_path, new_base)?;
+        let (old_base_oid, _) = self.resolved_revision(worktree_path, old_base)?;
         // The rebased branch must be an existing local branch; use Git's own
         // spelling of it rather than the caller-provided string.
         let task_branch = self.require_local_branch(worktree_path, task_branch)?;
@@ -638,11 +664,18 @@ impl GitCli {
         // compute the merge base of task_branch from old_base
         let merge_base = self
             .merge_base(worktree_path, old_base, task_branch)
-            .unwrap_or(old_base.to_string());
+            .unwrap_or(old_base_oid);
 
         self.git(
             worktree_path,
-            ["rebase", "--onto", new_base, "--", &merge_base, task_branch],
+            [
+                "rebase",
+                "--onto",
+                &new_base_oid,
+                "--",
+                &merge_base,
+                task_branch,
+            ],
         )?;
         Ok(())
     }

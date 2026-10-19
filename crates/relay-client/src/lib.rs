@@ -72,6 +72,30 @@ fn validate_relay_base_url(base_url: &str) -> Result<String, RelayApiError> {
     Ok(url.as_str().trim_end_matches('/').to_string())
 }
 
+#[allow(clippy::result_large_err)]
+fn relay_api_url(base_url: &str, segments: &[&str]) -> Result<reqwest::Url, RelayApiError> {
+    let base = reqwest::Url::parse(base_url)
+        .map_err(|_| RelayApiError::Other("invalid relay URL".into()))?;
+    let mut target = base.clone();
+    if segments
+        .iter()
+        .any(|segment| matches!(*segment, "." | ".."))
+    {
+        return Err(RelayApiError::Other(
+            "invalid relay API path segment".into(),
+        ));
+    }
+    target
+        .path_segments_mut()
+        .map_err(|_| RelayApiError::Other("relay URL cannot carry a path".into()))?
+        .pop_if_empty()
+        .extend(segments);
+    if target.origin() != base.origin() {
+        return Err(RelayApiError::Other("relay API origin changed".into()));
+    }
+    Ok(target)
+}
+
 const SPAKE2_CLIENT_ID: &[u8] = b"vibe-kanban-browser";
 const SPAKE2_SERVER_ID: &[u8] = b"vibe-kanban-server";
 
@@ -116,7 +140,7 @@ impl RelayApiClient {
         &self.signing
     }
 
-    fn authenticated_post(&self, url: String) -> reqwest::RequestBuilder {
+    fn authenticated_post(&self, url: reqwest::Url) -> reqwest::RequestBuilder {
         self.http
             .post(url)
             .header("X-Client-Version", env!("CARGO_PKG_VERSION"))
@@ -125,7 +149,10 @@ impl RelayApiClient {
     }
 
     async fn create_session(&self, host_id: Uuid) -> Result<RemoteSession, RelayApiError> {
-        let url = format!("{}/v1/relay/create/{host_id}", self.base_url);
+        let url = relay_api_url(
+            &self.base_url,
+            &["v1", "relay", "create", &host_id.to_string()],
+        )?;
         let response = self
             .authenticated_post(url)
             .send()
@@ -149,10 +176,11 @@ impl RelayApiClient {
         TPayload: Serialize,
         TData: DeserializeOwned,
     {
-        let url = format!(
-            "{}{path}",
-            relay_session_url(&self.base_url, remote_session.host_id, remote_session.id)
-        );
+        let host_id = remote_session.host_id.to_string();
+        let session_id = remote_session.id.to_string();
+        let mut segments = vec!["v1", "relay", "h", &host_id, "s", &session_id];
+        segments.extend(path.trim_start_matches('/').split('/'));
+        let url = relay_api_url(&self.base_url, &segments)?;
         let response = self
             .authenticated_post(url)
             .json(payload)
@@ -659,7 +687,37 @@ mod tests {
         net::TcpListener,
     };
 
-    use super::{relay_http_client, relay_target_url, validate_relay_base_url};
+    use super::{relay_api_url, relay_http_client, relay_target_url, validate_relay_base_url};
+
+    #[test]
+    fn relay_api_endpoints_keep_the_configured_authority_and_prefix() {
+        for base in [
+            "https://relay.example.test",
+            "https://relay.example.test/prefix/",
+            "http://127.0.0.1:8080/prefix",
+        ] {
+            for value in [
+                "00000000-0000-0000-0000-000000000001",
+                "//evil.example/path",
+                "x?next=https://evil.example",
+                "x#fragment",
+                "x\\..\\y",
+            ] {
+                let target = relay_api_url(base, &["v1", "relay", "create", value]).unwrap();
+                let expected = reqwest::Url::parse(base).unwrap();
+                assert_eq!(target.origin(), expected.origin());
+                assert!(target.path().starts_with(&format!(
+                    "{}/v1/relay/create/",
+                    expected.path().trim_end_matches('/')
+                )));
+                assert!(target.query().is_none());
+                assert!(target.fragment().is_none());
+            }
+        }
+        for value in [".", ".."] {
+            assert!(relay_api_url("https://relay.example.test", &[value]).is_err());
+        }
+    }
 
     #[test]
     fn relay_targets_cannot_escape_the_session() {
