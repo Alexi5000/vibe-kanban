@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
+    "vendor/tauri-plugin-updater",
     "vendor/rama-dns",
     "vendor/codex-git-utils",
     "crates/api-types",
@@ -62,6 +63,7 @@ split-debuginfo = "packed"
 strip = true
 
 [patch.crates-io]
+tauri-plugin-updater = { path = "vendor/tauri-plugin-updater" }
 rama-dns = { path = "vendor/rama-dns" }
 glib = { path = "vendor/glib" }
 tokio-tungstenite = { git = "https://github.com/openai-oss-forks/tokio-tungstenite", rev = "0e5b2d73aa18dd9f0a50ee9ff199d5aef7594186" }
