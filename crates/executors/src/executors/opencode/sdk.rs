@@ -1806,7 +1806,13 @@ mod transport_boundary_tests {
             let server = tokio::spawn(async move {
                 let (mut socket, _) = source.accept().await.unwrap();
                 let mut bytes = [0; 4096];
-                let count = socket.read(&mut bytes).await.unwrap();
+                let mut count = 0;
+                while !bytes[..count].windows(4).any(|part| part == b"\r\n\r\n") {
+                    assert!(count < bytes.len(), "request headers exceeded test buffer");
+                    let received = socket.read(&mut bytes[count..]).await.unwrap();
+                    assert!(received > 0, "request ended before its headers");
+                    count += received;
+                }
                 let request = String::from_utf8_lossy(&bytes[..count]).to_lowercase();
                 assert!(request.starts_with("get /global/health "));
                 let auth = BASE64.encode("opencode:local-test-password").to_lowercase();

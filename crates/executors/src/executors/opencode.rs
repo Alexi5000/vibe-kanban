@@ -881,6 +881,7 @@ mod transport_boundary_tests {
             "not a URL",
             "http://127.0.0.1",
             "http://127.0.0.1:0",
+            "http://127.0.0.1:80",
             "http://user:pass@127.0.0.1:32123",
             "http://127.0.0.1:32123/api",
             "http://127.0.0.1:32123?target=remote",
