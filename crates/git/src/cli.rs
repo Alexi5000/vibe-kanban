@@ -149,6 +149,7 @@ impl GitCli {
         if force {
             args.push("--force".into());
         }
+        args.push("--".into());
         args.push(worktree_path.as_os_str().into());
         self.git(repo_path, args)?;
         Ok(())
@@ -167,6 +168,7 @@ impl GitCli {
             [
                 "worktree",
                 "move",
+                "--",
                 old_path.to_str().ok_or_else(|| {
                     GitCliError::CommandFailed("Invalid old worktree path".to_string())
                 })?,

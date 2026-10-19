@@ -1598,3 +1598,20 @@ fn branch_and_ref_helpers_reject_option_operands() {
         .unwrap();
     assert!(wt_new.join("common.txt").exists());
 }
+
+#[test]
+fn worktree_paths_are_not_parsed_as_options() {
+    let root = TempDir::new().unwrap();
+    let (repo_path, _) = setup_repo_with_worktree(&root);
+    let git = GitCli::new();
+    let first = Path::new("--force");
+    let second = Path::new("--detach");
+    git.worktree_add(&repo_path, first, "path-options", true)
+        .unwrap();
+    assert!(repo_path.join(first).join("common.txt").exists());
+    git.worktree_move(&repo_path, first, second).unwrap();
+    assert!(repo_path.join(second).join("common.txt").exists());
+    assert!(!repo_path.join(first).exists());
+    git.worktree_remove(&repo_path, second, false).unwrap();
+    assert!(!repo_path.join(second).exists());
+}
