@@ -41,3 +41,47 @@ pub fn extract_subject(token: &str) -> Result<Uuid, TokenClaimsError> {
     let sub = data.claims.sub.ok_or(TokenClaimsError::MissingSubject)?;
     Uuid::parse_str(&sub).map_err(|_| TokenClaimsError::InvalidSubject(sub))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn token_metadata_decodes_without_a_crypto_provider() {
+        let token = "eyJhbGciOiAiSFMyNTYiLCAidHlwIjogIkpXVCJ9.eyJleHAiOiAyMDAwMDAwMDAwLCAic3ViIjogIjEyMzQ1Njc4LTEyMzQtMTIzNC0xMjM0LTEyMzQ1Njc4OWFiYyJ9.metadata-only";
+        assert_eq!(
+            extract_expiration(token).unwrap().timestamp(),
+            2_000_000_000
+        );
+        assert_eq!(
+            extract_subject(token).unwrap().to_string(),
+            "12345678-1234-1234-1234-123456789abc"
+        );
+    }
+
+    #[test]
+    fn token_metadata_errors_remain_explicit() {
+        let missing = "eyJhbGciOiAiSFMyNTYiLCAidHlwIjogIkpXVCJ9.e30.metadata-only";
+        let invalid = "eyJhbGciOiAiSFMyNTYiLCAidHlwIjogIkpXVCJ9.eyJzdWIiOiAiaW52YWxpZCIsICJleHAiOiA5MjIzMzcyMDM2ODU0Nzc1ODA3fQ.metadata-only";
+        assert!(matches!(
+            extract_expiration(missing),
+            Err(TokenClaimsError::MissingExpiration)
+        ));
+        assert!(matches!(
+            extract_subject(missing),
+            Err(TokenClaimsError::MissingSubject)
+        ));
+        assert!(matches!(
+            extract_expiration(invalid),
+            Err(TokenClaimsError::InvalidExpiration(_))
+        ));
+        assert!(matches!(
+            extract_subject(invalid),
+            Err(TokenClaimsError::InvalidSubject(_))
+        ));
+        assert!(matches!(
+            extract_subject("malformed"),
+            Err(TokenClaimsError::Decode(_))
+        ));
+    }
+}
