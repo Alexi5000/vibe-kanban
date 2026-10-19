@@ -80,6 +80,9 @@ GOOGLE_OAUTH_CLIENT_ID=
 GOOGLE_OAUTH_CLIENT_SECRET=
 
 # Relay (required for relay/tunnel features)
+# HTTP is supported only for localhost or loopback IPs.
+# Remote hosts, including private LAN addresses, require HTTPS.
+# Relay URLs must not contain credentials, query parameters, or fragments.
 # For plain HTTP local dev:
 VITE_RELAY_API_BASE_URL=http://localhost:8082
 

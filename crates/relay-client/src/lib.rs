@@ -46,6 +46,32 @@ fn relay_http_client() -> Result<Client, reqwest::Error> {
         .build()
 }
 
+#[allow(clippy::result_large_err)]
+fn validate_relay_base_url(base_url: &str) -> Result<String, RelayApiError> {
+    let url = reqwest::Url::parse(base_url)
+        .map_err(|_| RelayApiError::Other("invalid relay URL".into()))?;
+    let local = url.host_str().is_some_and(|host| {
+        host.eq_ignore_ascii_case("localhost")
+            || host
+                .trim_start_matches('[')
+                .trim_end_matches(']')
+                .parse::<std::net::IpAddr>()
+                .is_ok_and(|ip| ip.is_loopback())
+    });
+    if url.host().is_none()
+        || !(url.scheme() == "https" || (url.scheme() == "http" && local))
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return Err(RelayApiError::Other(
+            "relay URL must use HTTPS (HTTP is allowed only for loopback) and contain no credentials, query or fragment".into(),
+        ));
+    }
+    Ok(url.as_str().trim_end_matches('/').to_string())
+}
+
 const SPAKE2_CLIENT_ID: &[u8] = b"vibe-kanban-browser";
 const SPAKE2_SERVER_ID: &[u8] = b"vibe-kanban-server";
 
@@ -72,10 +98,11 @@ impl RelayApiClient {
         access_token: String,
         signing: RelaySigningService,
     ) -> Result<Self, RelayApiError> {
+        let base_url = validate_relay_base_url(&base_url)?;
         let http = relay_http_client()?;
         Ok(Self {
             http,
-            base_url: base_url.trim_end_matches('/').to_string(),
+            base_url,
             access_token,
             signing,
         })
@@ -611,7 +638,50 @@ mod tests {
         net::TcpListener,
     };
 
-    use super::relay_http_client;
+    use super::{relay_http_client, validate_relay_base_url};
+
+    #[test]
+    fn relay_credentials_require_secure_remote_transport() {
+        for url in [
+            "http://relay.example.com",
+            "http://192.168.1.2",
+            "http://[::]",
+            "https://user:password@relay.example.com",
+            "https://relay.example.com?token=secret",
+            "https://relay.example.com#fragment",
+            "file:///tmp/relay",
+            "not a URL",
+        ] {
+            assert!(validate_relay_base_url(url).is_err(), "accepted {url}");
+        }
+        for url in [
+            "https://relay.example.com",
+            "https://relay.example.com/base",
+            "http://127.0.0.1:8082",
+            "http://[::1]:8082",
+            "http://localhost:8082",
+        ] {
+            assert_eq!(validate_relay_base_url(url).unwrap(), url);
+        }
+    }
+
+    #[test]
+    fn relay_loopback_normalization_is_explicit() {
+        for (input, expected) in [
+            ("http://2130706433:8082", "http://127.0.0.1:8082"),
+            ("http://0x7f000001:8082", "http://127.0.0.1:8082"),
+            ("http://LOCALhost:8082", "http://localhost:8082"),
+        ] {
+            assert_eq!(validate_relay_base_url(input).unwrap(), expected);
+        }
+        for input in [
+            "http://0xc0a80101",
+            "http://localhost.example.com",
+            "http://localhost.",
+        ] {
+            assert!(validate_relay_base_url(input).is_err());
+        }
+    }
 
     #[tokio::test]
     async fn authenticated_relay_requests_do_not_follow_redirects() {
