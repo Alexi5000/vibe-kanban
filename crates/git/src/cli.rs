@@ -39,6 +39,32 @@ pub enum GitCliError {
     PushRejected(String),
     #[error("rebase in progress in this worktree")]
     RebaseInProgress,
+    #[error("invalid git operand: {0}")]
+    InvalidOperand(String),
+}
+
+/// Reject operands that Git would parse as a command-line option.
+///
+/// Branch, ref and remote names can never legitimately start with `-` (Git's
+/// own ref-format rules forbid it), so rejecting them up front prevents option
+/// injection even for subcommands that do not honour a `--` separator.
+fn ensure_not_option(kind: &str, value: &str) -> Result<(), GitCliError> {
+    if value.is_empty() {
+        return Err(GitCliError::InvalidOperand(format!(
+            "{kind} must not be empty"
+        )));
+    }
+    if value.starts_with('-') {
+        return Err(GitCliError::InvalidOperand(format!(
+            "{kind} must not start with '-'"
+        )));
+    }
+    if value.contains('\0') {
+        return Err(GitCliError::InvalidOperand(format!(
+            "{kind} must not contain NUL bytes"
+        )));
+    }
+    Ok(())
 }
 
 #[derive(Clone, Default)]
@@ -90,14 +116,18 @@ impl GitCli {
         create_branch: bool,
     ) -> Result<(), GitCliError> {
         self.ensure_available()?;
+        ensure_not_option("branch name", branch)?;
 
         let mut args: Vec<OsString> = vec!["worktree".into(), "add".into()];
         if create_branch {
             args.push("-b".into());
             args.push(OsString::from(branch));
         }
+        args.push("--".into());
         args.push(worktree_path.as_os_str().into());
-        args.push(OsString::from(branch));
+        if !create_branch {
+            args.push(OsString::from(branch));
+        }
         self.git(repo_path, args)?;
 
         // Good practice: reapply sparse-checkout in the new worktree to ensure materialization matches
@@ -421,7 +451,8 @@ impl GitCli {
     /// Delete a local branch from the repository (force delete).
     pub fn delete_branch(&self, repo_path: &Path, branch_name: &str) -> Result<(), GitCliError> {
         self.ensure_available()?;
-        self.git(repo_path, ["branch", "-D", branch_name])?;
+        ensure_not_option("branch name", branch_name)?;
+        self.git(repo_path, ["branch", "-D", "--", branch_name])?;
         Ok(())
     }
 
@@ -430,8 +461,62 @@ impl GitCli {
         repo_path: &Path,
         remote_name: &str,
     ) -> Result<String, GitCliError> {
-        let output = self.git(repo_path, ["remote", "get-url", remote_name])?;
+        // Only ever pass a remote name that Git itself reported as configured.
+        let remote_name = self.require_configured_remote(repo_path, remote_name)?;
+        let output = self.git(repo_path, ["remote", "get-url", "--", &remote_name])?;
         Ok(output.trim().to_string())
+    }
+
+    /// Names of all configured remotes, as reported by `git remote`.
+    pub fn remote_names(&self, repo_path: &Path) -> Result<Vec<String>, GitCliError> {
+        let output = self.git(repo_path, ["remote"])?;
+        Ok(output
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .map(str::to_string)
+            .collect())
+    }
+
+    /// Names of all local branches (`refs/heads/*`), as reported by Git.
+    pub fn local_branch_names(&self, repo_path: &Path) -> Result<Vec<String>, GitCliError> {
+        let output = self.git(
+            repo_path,
+            [
+                "for-each-ref",
+                "--format=%(refname:lstrip=2)",
+                "refs/heads/",
+            ],
+        )?;
+        Ok(output
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(str::to_string)
+            .collect())
+    }
+
+    /// Resolve `name` against the configured remotes and return Git's own
+    /// spelling of it. Untrusted input is never forwarded to Git directly.
+    fn require_configured_remote(
+        &self,
+        repo_path: &Path,
+        name: &str,
+    ) -> Result<String, GitCliError> {
+        ensure_not_option("remote name", name)?;
+        self.remote_names(repo_path)?
+            .into_iter()
+            .find(|remote| remote == name)
+            .ok_or_else(|| GitCliError::InvalidOperand(format!("unknown remote '{name}'")))
+    }
+
+    /// Resolve `name` against the existing local branches and return Git's
+    /// own spelling of it. Untrusted input is never forwarded to Git directly.
+    fn require_local_branch(&self, repo_path: &Path, name: &str) -> Result<String, GitCliError> {
+        ensure_not_option("branch name", name)?;
+        self.local_branch_names(repo_path)?
+            .into_iter()
+            .find(|branch| branch == name)
+            .ok_or_else(|| GitCliError::InvalidOperand(format!("unknown local branch '{name}'")))
     }
 
     /// List all remotes with their URLs using `git remote -v`.
@@ -520,6 +605,8 @@ impl GitCli {
         a: &str,
         b: &str,
     ) -> Result<String, GitCliError> {
+        ensure_not_option("revision", a)?;
+        ensure_not_option("revision", b)?;
         let out = self
             .git(worktree_path, ["merge-base", "--fork-point", "--", a, b])
             .unwrap_or(self.git(worktree_path, ["merge-base", "--", a, b])?);
@@ -539,6 +626,12 @@ impl GitCli {
         if self.is_rebase_in_progress(worktree_path).unwrap_or(false) {
             return Err(GitCliError::RebaseInProgress);
         }
+        ensure_not_option("new base", new_base)?;
+        ensure_not_option("old base", old_base)?;
+        // The rebased branch must be an existing local branch; use Git's own
+        // spelling of it rather than the caller-provided string.
+        let task_branch = self.require_local_branch(worktree_path, task_branch)?;
+        let task_branch = task_branch.as_str();
         // compute the merge base of task_branch from old_base
         let merge_base = self
             .merge_base(worktree_path, old_base, task_branch)
@@ -653,9 +746,23 @@ impl GitCli {
         from_branch: &str,
         message: &str,
     ) -> Result<String, GitCliError> {
-        self.git(repo_path, ["checkout", base_branch]).map(|_| ())?;
-        self.git(repo_path, ["merge", "--squash", "--no-commit", from_branch])
+        // Both sides must be existing local branches; forward Git's own spelling
+        // of each name rather than caller-provided strings.
+        let base_branch = self.require_local_branch(repo_path, base_branch)?;
+        let from_branch = self.require_local_branch(repo_path, from_branch)?;
+        self.git(repo_path, ["checkout", base_branch.as_str(), "--"])
             .map(|_| ())?;
+        self.git(
+            repo_path,
+            [
+                "merge",
+                "--squash",
+                "--no-commit",
+                "--",
+                from_branch.as_str(),
+            ],
+        )
+        .map(|_| ())?;
         self.git(repo_path, ["commit", "-m", message]).map(|_| ())?;
         let sha = self
             .git(repo_path, ["rev-parse", "HEAD"])?
@@ -671,7 +778,9 @@ impl GitCli {
         refname: &str,
         sha: &str,
     ) -> Result<(), GitCliError> {
-        self.git(repo_path, ["update-ref", refname, sha])
+        ensure_not_option("ref name", refname)?;
+        ensure_not_option("object id", sha)?;
+        self.git(repo_path, ["update-ref", "--", refname, sha])
             .map(|_| ())
     }
 
