@@ -38,6 +38,14 @@ pub enum RelayApiError {
     Other(String),
 }
 
+fn relay_http_client() -> Result<Client, reqwest::Error> {
+    Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(30))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+}
+
 const SPAKE2_CLIENT_ID: &[u8] = b"vibe-kanban-browser";
 const SPAKE2_SERVER_ID: &[u8] = b"vibe-kanban-server";
 
@@ -64,10 +72,7 @@ impl RelayApiClient {
         access_token: String,
         signing: RelaySigningService,
     ) -> Result<Self, RelayApiError> {
-        let http = Client::builder()
-            .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(30))
-            .build()?;
+        let http = relay_http_client()?;
         Ok(Self {
             http,
             base_url: base_url.trim_end_matches('/').to_string(),
@@ -597,4 +602,46 @@ struct CreateRelaySessionResponse {
 #[derive(Debug, Deserialize)]
 struct RelayApiResponse<T> {
     data: T,
+}
+
+#[cfg(test)]
+mod tests {
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+    };
+
+    use super::relay_http_client;
+
+    #[tokio::test]
+    async fn authenticated_relay_requests_do_not_follow_redirects() {
+        let source = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let source_address = source.local_addr().unwrap();
+        let target_address = target.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = source.accept().await.unwrap();
+            let mut request = [0; 4096];
+            socket.read(&mut request).await.unwrap();
+            let response = format!(
+                "HTTP/1.1 307 Temporary Redirect\r\nLocation: http://{target_address}/private\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            );
+            socket.write_all(response.as_bytes()).await.unwrap();
+        });
+        let response = relay_http_client()
+            .unwrap()
+            .post(format!("http://{source_address}/v1/relay/create"))
+            .bearer_auth("test-token")
+            .body("signed-request")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::TEMPORARY_REDIRECT);
+        server.await.unwrap();
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(100), target.accept())
+                .await
+                .is_err()
+        );
+    }
 }
