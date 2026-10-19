@@ -1,5 +1,4 @@
-// The CLI stays on 0.124; project only fields consumed by Vibe rather than
-// requiring identities and approval enums added or removed by newer protocols.
+// Project only fields consumed by Vibe across retained sessions and current runtimes.
 use std::path::PathBuf;
 
 use codex_protocol::openai_models::ReasoningEffort;
@@ -81,6 +80,22 @@ mod tests {
         assert_eq!(start.thread.id, read.thread.id);
         assert_eq!(start.model, "gpt-5.4");
         assert_eq!(read.thread.cli_version, "0.124.0");
+    }
+
+    #[test]
+    fn reads_captured_0147_responses_and_retained_session() {
+        let start: ThreadSessionResponse =
+            serde_json::from_str(include_str!("fixtures/thread-start-0.147.json")).unwrap();
+        let read: ThreadReadResponse =
+            serde_json::from_str(include_str!("fixtures/thread-read-0.147.json")).unwrap();
+        let fork: ThreadSessionResponse =
+            serde_json::from_str(include_str!("fixtures/thread-fork-0.147.json")).unwrap();
+        let resume: ThreadSessionResponse =
+            serde_json::from_str(include_str!("fixtures/thread-resume-0.147.json")).unwrap();
+        assert_eq!(start.thread.cli_version, "0.147.0");
+        assert_eq!(read.thread.id, resume.thread.id);
+        assert_ne!(fork.thread.id, read.thread.id);
+        assert_eq!(fork.model, resume.model);
     }
 
     #[test]

@@ -1,0 +1,54 @@
+{
+  "thread": {
+    "id": "12345678-1234-4234-8234-123456789abc",
+    "extra": null,
+    "sessionId": "12345678-1234-4234-8234-123456789abc",
+    "forkedFromId": null,
+    "parentThreadId": null,
+    "preview": "",
+    "ephemeral": false,
+    "section": null,
+    "sectionEnteredAt": null,
+    "historyMode": "legacy",
+    "modelProvider": "offline",
+    "createdAt": 1792368000,
+    "updatedAt": 1792387675,
+    "recencyAt": 1792387675,
+    "status": {
+      "type": "idle"
+    },
+    "path": "/tmp/vibe-compat-fixture/sessions/2026/10/19/rollout-2026-10-19T00-00-00-12345678-1234-4234-8234-123456789abc.jsonl",
+    "cwd": "/tmp/vibe-compat-fixture",
+    "cliVersion": "0.124.0",
+    "source": "cli",
+    "canAcceptDirectInput": true,
+    "threadSource": null,
+    "agentNickname": null,
+    "agentRole": null,
+    "gitInfo": null,
+    "name": null,
+    "turns": []
+  },
+  "model": "gpt-5.6-sol",
+  "modelProvider": "offline",
+  "serviceTier": null,
+  "cwd": "/tmp/vibe-compat-fixture",
+  "runtimeWorkspaceRoots": [
+    "/tmp/vibe-compat-fixture"
+  ],
+  "instructionSources": [
+    "/home/workspace/AGENTS.md"
+  ],
+  "approvalPolicy": "on-request",
+  "approvalsReviewer": "user",
+  "sandbox": {
+    "type": "readOnly",
+    "networkAccess": false
+  },
+  "activePermissionProfile": null,
+  "reasoningEffort": null,
+  "multiAgentMode": "explicitRequestOnly",
+  "initialTurnsPage": null,
+  "turnsBackwardsCursor": null,
+  "itemsBackwardsCursor": null
+}

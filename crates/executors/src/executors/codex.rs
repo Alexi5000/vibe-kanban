@@ -97,8 +97,7 @@ pub enum SandboxMode {
 ///
 /// - `UnlessTrusted`: Read-only commands are auto-approved. Everything else will
 ///   ask the user to approve.
-/// - `OnFailure`: All commands run in a restricted sandbox initially. If a
-///   command fails, the user is asked to approve execution without the sandbox.
+/// - `OnFailure`: Legacy setting migrated to `OnRequest` by Codex 0.147.
 /// - `OnRequest`: The model decides when to ask the user for approval.
 /// - `Never`: Commands never ask for approval. Commands that fail in the
 ///   restricted sandbox are not retried.
@@ -445,7 +444,7 @@ impl StandardCodingAgentExecutor for Codex {
 
 impl Codex {
     pub fn base_command() -> &'static str {
-        "npx -y @openai/codex@0.124.0"
+        "npx -y @openai/codex@0.147.0"
     }
 
     fn build_command_builder(&self) -> Result<CommandBuilder, CommandBuildError> {
@@ -473,18 +472,13 @@ impl Codex {
             }
             None => None,
             Some(AskForApproval::UnlessTrusted) => Some(V2AskForApproval::UnlessTrusted),
-            Some(AskForApproval::OnFailure) => None,
-            Some(AskForApproval::OnRequest) => Some(V2AskForApproval::OnRequest),
+            Some(AskForApproval::OnFailure | AskForApproval::OnRequest) => {
+                Some(V2AskForApproval::OnRequest)
+            }
             Some(AskForApproval::Never) => Some(V2AskForApproval::Never),
         };
 
         let mut config = self.build_config_overrides();
-        if matches!(self.ask_for_approval, Some(AskForApproval::OnFailure)) {
-            config.get_or_insert_with(HashMap::new).insert(
-                "approval_policy".to_string(),
-                Value::String("on-failure".to_string()),
-            );
-        }
         // V1 top-level params that moved into config overrides in v2
         if let Some(profile) = &self.profile {
             config
@@ -501,9 +495,7 @@ impl Codex {
                 .get_or_insert_with(HashMap::new)
                 .insert("compact_prompt".to_string(), Value::String(compact.clone()));
         }
-        if matches!(self.ask_for_approval, Some(AskForApproval::OnFailure))
-            || !matches!(approval_policy, None | Some(V2AskForApproval::Never))
-        {
+        if !matches!(approval_policy, None | Some(V2AskForApproval::Never)) {
             let map = config.get_or_insert_with(HashMap::new);
             map.insert(
                 "features.default_mode_request_user_input".to_string(),
@@ -776,17 +768,40 @@ mod tests {
     use super::{Codex, resolve_model};
 
     #[test]
-    fn preserves_legacy_failure_approval_and_fast_tier() {
+    fn migrates_legacy_failure_approval_and_preserves_fast_tier() {
         let executor: Codex = serde_json::from_value(serde_json::json!({
             "ask_for_approval": "on-failure", "model": "gpt-5.5-fast"
         }))
         .unwrap();
         let params = executor.build_thread_start_params(Path::new("/tmp/work"));
-        assert!(params.approval_policy.is_none());
+        assert_eq!(
+            serde_json::to_value(params.approval_policy).unwrap(),
+            "on-request"
+        );
         let config = params.config.unwrap();
-        assert_eq!(config["approval_policy"], "on-failure");
+        assert!(!config.contains_key("approval_policy"));
         assert_eq!(config["features.default_mode_request_user_input"], true);
         assert_eq!(params.service_tier, Some(Some("fast".to_string())));
+    }
+
+    #[test]
+    fn preserves_explicit_approval_modes_and_read_only_sandbox() {
+        for (setting, expected) in [
+            ("unless-trusted", "untrusted"),
+            ("on-request", "on-request"),
+            ("never", "never"),
+        ] {
+            let executor: Codex = serde_json::from_value(serde_json::json!({
+                "ask_for_approval": setting, "sandbox": "read-only"
+            }))
+            .unwrap();
+            let params = executor.build_thread_start_params(Path::new("/tmp/work"));
+            assert_eq!(
+                serde_json::to_value(params.approval_policy).unwrap(),
+                expected
+            );
+            assert_eq!(serde_json::to_value(params.sandbox).unwrap(), "read-only");
+        }
     }
 
     #[test]

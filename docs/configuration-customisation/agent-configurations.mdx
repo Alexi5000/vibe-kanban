@@ -119,7 +119,7 @@ The profiles configuration uses a JSON structure with an `executors` object cont
   </ParamField>
 
   <ParamField path="approval" type="string">
-  Approval level: `"untrusted"`, `"on-failure"`, `"on-request"`, or `"never"`
+  Approval level: `"untrusted"`, `"on-request"`, or `"never"`. Existing `"on-failure"` profiles migrate to `"on-request"`; their sandbox setting is retained.
   </ParamField>
 
   <ParamField path="model_reasoning_effort" type="string">
