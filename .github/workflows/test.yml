@@ -95,6 +95,7 @@ jobs:
               - 'Cargo.lock'
               - 'vendor/codex-git-utils/**'
               - 'vendor/rama-dns/**'
+              - 'vendor/tauri-plugin-updater/**'
               - 'shared/**'
               - 'scripts/prepare-db.js'
               - 'pnpm-lock.yaml'
@@ -116,6 +117,7 @@ jobs:
               - 'Cargo.lock'
               - 'vendor/codex-git-utils/**'
               - 'vendor/rama-dns/**'
+              - 'vendor/tauri-plugin-updater/**'
               - 'shared/**'
               - 'rustfmt.toml'
               - 'rust-toolchain.toml'
@@ -159,6 +161,7 @@ jobs:
               - 'Cargo.lock'
               - 'vendor/codex-git-utils/**'
               - 'vendor/rama-dns/**'
+              - 'vendor/tauri-plugin-updater/**'
               - 'rustfmt.toml'
               - 'rust-toolchain.toml'
               - '.cargo/**'
@@ -362,3 +365,16 @@ jobs:
           cargo fmt --all --manifest-path crates/tauri-app/Cargo.toml -- --check
           cargo clippy --all-targets --manifest-path crates/tauri-app/Cargo.toml -- -D warnings
           cargo check -p vibe-kanban-tauri
+          cargo test -p tauri-plugin-updater --lib --test archive_security --locked
+
+  windows-updater-checks:
+    needs: changes
+    if: always() && (needs.changes.outputs.tauri == 'true' || needs.changes.result == 'skipped')
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - name: Test Windows updater compilation, arguments, and archive boundaries
+        run: cargo test -p tauri-plugin-updater --lib --test archive_security --locked
