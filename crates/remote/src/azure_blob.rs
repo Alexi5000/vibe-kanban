@@ -69,6 +69,8 @@ impl AzureBlobService {
             None => format!("https://{}.blob.core.windows.net", account_name),
         };
 
+        let endpoint = endpoint.parse().expect("invalid Azure Blob endpoint URL");
+
         let service_client = match &config.auth_mode {
             AzureAuthMode::EntraId { client_id } => {
                 let credential =
@@ -79,7 +81,7 @@ impl AzureBlobService {
                     .expect("failed to create ManagedIdentityCredential");
 
                 Arc::new(
-                    BlobServiceClient::new(&endpoint, Some(credential), None)
+                    BlobServiceClient::new(endpoint, Some(credential), None)
                         .expect("failed to create BlobServiceClient with managed identity"),
                 )
             }
@@ -91,7 +93,7 @@ impl AzureBlobService {
 
                 Arc::new(
                     BlobServiceClient::new(
-                        &endpoint,
+                        endpoint,
                         None,
                         Some(BlobServiceClientOptions {
                             client_options: ClientOptions {
@@ -182,7 +184,7 @@ impl AzureBlobService {
             .map_err(|e| AzureBlobError::Storage(e.to_string()))?;
 
         let bytes = response
-            .into_body()
+            .body
             .collect()
             .await
             .map_err(|e| AzureBlobError::Storage(e.to_string()))?;
@@ -200,13 +202,9 @@ impl AzureBlobService {
         data: Vec<u8>,
         content_type: String,
     ) -> Result<(), AzureBlobError> {
-        let len = data.len() as u64;
-
         self.blob_client(blob_path)
             .upload(
                 RequestContent::from(data),
-                true,
-                len,
                 Some(BlockBlobClientUploadOptions {
                     blob_content_type: Some(content_type),
                     ..Default::default()
@@ -478,6 +476,90 @@ mod tests {
 
     const MOCK_SECRET_KEY: &str = "RZfi3m1W7eyQ5zD4ymSmGANVdJ2SDQmg4sE89SW104s=";
     const MOCK_CANONICALIZED_RESOURCE: &str = "/blob/STORAGE_ACCOUNT_NAME/CONTAINER_NAME/";
+
+    #[tokio::test]
+    async fn azure_sdk_shared_key_blob_roundtrip() {
+        use axum::{
+            body::{Body, to_bytes},
+            http::{Request, Response, StatusCode},
+            routing::any,
+        };
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let app = axum::Router::new().route(
+            "/container/blob",
+            any(|request: Request<Body>| async move {
+                assert!(
+                    request.headers()["authorization"]
+                        .to_str()
+                        .unwrap()
+                        .starts_with("SharedKey account:")
+                );
+                let method = request.method().clone();
+                if method == "PUT" {
+                    assert_eq!(request.headers()["x-ms-blob-type"], "BlockBlob");
+                    assert_eq!(request.headers()["x-ms-blob-content-type"], "text/plain");
+                    assert!(!request.headers().contains_key("if-none-match"));
+                }
+                let body = to_bytes(request.into_body(), 1024).await.unwrap();
+                match method.as_str() {
+                    "PUT" => {
+                        assert_eq!(&body[..], b"hello");
+                        Response::builder()
+                            .status(StatusCode::CREATED)
+                            .body(Body::empty())
+                            .unwrap()
+                    }
+                    "GET" | "HEAD" => Response::builder()
+                        .status(StatusCode::OK)
+                        .header("content-length", "5")
+                        .header("etag", "\"test-etag\"")
+                        .body(if method == "GET" {
+                            Body::from("hello")
+                        } else {
+                            Body::empty()
+                        })
+                        .unwrap(),
+                    "DELETE" => Response::builder()
+                        .status(StatusCode::ACCEPTED)
+                        .body(Body::empty())
+                        .unwrap(),
+                    _ => panic!("unexpected Azure request method"),
+                }
+            }),
+        );
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let service = AzureBlobService::new(&AzureBlobConfig {
+            account_name: "account".into(),
+            account_key: MOCK_SECRET_KEY.to_string().into(),
+            container_name: "container".into(),
+            endpoint_url: Some(endpoint),
+            public_endpoint_url: None,
+            presign_expiry_secs: 300,
+            auth_mode: AzureAuthMode::SharedKey,
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            service
+                .upload_blob("blob", b"hello".to_vec(), "text/plain".into())
+                .await
+                .unwrap();
+            assert_eq!(service.download_blob("blob").await.unwrap(), b"hello");
+            assert_eq!(
+                service
+                    .get_blob_properties("blob")
+                    .await
+                    .unwrap()
+                    .content_length,
+                5
+            );
+            service.delete_blob("blob").await.unwrap();
+        })
+        .await
+        .unwrap();
+        server.abort();
+    }
 
     #[test]
     fn test_blob_scoped_sas_token() {
