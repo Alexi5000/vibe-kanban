@@ -427,6 +427,8 @@ fn build_opencode_client(
 
     reqwest::Client::builder()
         .default_headers(build_default_headers(directory, password))
+        .redirect(reqwest::redirect::Policy::none())
+        .no_proxy()
         .connect_timeout(OPENCODE_CONNECT_TIMEOUT)
         .timeout(OPENCODE_HTTP_TIMEOUT)
         .build()
@@ -1786,4 +1788,51 @@ fn answers_to_opencode_format(questions: &[Value], answers: &[QuestionAnswer]) -
                 })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod transport_boundary_tests {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    use super::*;
+
+    #[tokio::test]
+    async fn authenticated_requests_reach_local_server_without_following_redirects() {
+        for status in [200, 301, 302, 303, 307, 308] {
+            let source = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let target = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let base = format!("http://{}", source.local_addr().unwrap());
+            let location = format!("http://{}/leak", target.local_addr().unwrap());
+            let password = uuid::Uuid::new_v4().to_string();
+            let expected_auth = BASE64.encode(format!("opencode:{password}")).to_lowercase();
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = source.accept().await.unwrap();
+                let mut bytes = [0; 4096];
+                let mut count = 0;
+                while !bytes[..count].windows(4).any(|part| part == b"\r\n\r\n") {
+                    assert!(count < bytes.len(), "request headers exceeded test buffer");
+                    let received = socket.read(&mut bytes[count..]).await.unwrap();
+                    assert!(received > 0, "request ended before its headers");
+                    count += received;
+                }
+                let request = String::from_utf8_lossy(&bytes[..count]).to_lowercase();
+                assert!(request.starts_with("get /global/health "));
+                assert!(request.contains(&format!("authorization: basic {expected_auth}")));
+                socket.write_all(format!("HTTP/1.1 {status} Test\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes()).await.unwrap();
+            });
+            let response = build_opencode_client("/tmp/workspace", &password)
+                .unwrap()
+                .get(format!("{base}/global/health"))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status().as_u16(), status);
+            assert!(
+                tokio::time::timeout(Duration::from_millis(50), target.accept())
+                    .await
+                    .is_err()
+            );
+            server.await.unwrap();
+        }
+    }
 }
