@@ -30,6 +30,7 @@ mod tests {
         ChannelMsg, client,
         keys::{PrivateKeyWithHashAlg, PublicKeyOrCertificate},
     };
+    use tokio::io::AsyncWriteExt;
 
     use super::*;
 
@@ -47,7 +48,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn authenticated_session_executes_and_rejects_external_forwarding() {
+    async fn authenticated_session_executes_transfers_and_rejects_external_forwarding() {
         tokio::time::timeout(std::time::Duration::from_secs(10), async {
             let server_key = SigningKey::from_bytes(&[7; 32]);
             let peer_key = SigningKey::from_bytes(&[8; 32]);
@@ -91,6 +92,31 @@ mod tests {
             }
             assert_eq!(output, b"ssh-migration-ok");
             assert_eq!(exit_status, Some(0));
+            let channel = client.channel_open_session().await.unwrap();
+            channel.request_subsystem(true, "sftp").await.unwrap();
+            let sftp = russh_sftp::client::SftpSession::new(channel.into_stream())
+                .await
+                .unwrap();
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("ssh-roundtrip.bin");
+            let remote_path = path.to_str().unwrap();
+            let payload = b"encrypted SSH file transfer\x00\xff";
+            let mut file = sftp
+                .open_with_flags(
+                    remote_path,
+                    russh_sftp::protocol::OpenFlags::CREATE
+                        | russh_sftp::protocol::OpenFlags::WRITE
+                        | russh_sftp::protocol::OpenFlags::TRUNCATE,
+                )
+                .await
+                .unwrap();
+            file.write_all(payload).await.unwrap();
+            file.shutdown().await.unwrap();
+            assert_eq!(std::fs::read(&path).unwrap(), payload);
+            assert_eq!(sftp.read(remote_path).await.unwrap(), payload);
+            sftp.remove_file(remote_path).await.unwrap();
+            assert!(!path.exists());
+            sftp.close().await.unwrap();
             client
                 .disconnect(russh::Disconnect::ByApplication, "test complete", "")
                 .await

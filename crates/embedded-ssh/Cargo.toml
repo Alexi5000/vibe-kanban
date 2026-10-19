@@ -5,10 +5,13 @@ edition = "2024"
 
 [dependencies]
 relay-control = { path = "../relay-control" }
-russh = "0.64.1"
+russh = { version = "0.64.1", default-features = false, features = ["flate2", "aws-lc-rs"] }
 russh-sftp = "2.0"
 ed25519-dalek = "2.2.0"
 tokio = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 async-trait = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

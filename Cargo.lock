@@ -2329,16 +2329,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "crypto-primes"
-version = "0.7.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3633a51a39c69ebbaa4feaa694bd83d241e4093901c84a0963b19d9bb3f0cf8f"
-dependencies = [
- "crypto-bigint 0.7.5",
- "rand_core 0.10.0",
-]
-
-[[package]]
 name = "cssparser"
 version = "0.37.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3273,6 +3263,7 @@ dependencies = [
  "relay-control",
  "russh",
  "russh-sftp",
+ "tempfile",
  "tokio",
  "tracing",
 ]
@@ -8497,16 +8488,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pkcs1"
-version = "0.8.0-rc.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "986d2e952779af96ea048f160fd9194e1751b4faea78bcf3ceb456efe008088e"
-dependencies = [
- "der 0.8.2",
- "spki 0.8.1",
-]
-
-[[package]]
 name = "pkcs5"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10036,32 +10017,13 @@ dependencies = [
  "num-bigint-dig",
  "num-integer",
  "num-traits",
- "pkcs1 0.7.5",
+ "pkcs1",
  "pkcs8 0.10.2",
  "rand_core 0.6.4",
  "sha2 0.10.9",
  "signature 2.2.0",
  "spki 0.7.3",
  "subtle",
- "zeroize",
-]
-
-[[package]]
-name = "rsa"
-version = "0.10.0-rc.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30b2aa4ba0d89f73d1e332df05be0eeab8840351c36ca5654341dfdb57bb3caf"
-dependencies = [
- "const-oid 0.10.2",
- "crypto-bigint 0.7.5",
- "crypto-primes",
- "digest 0.11.2",
- "pkcs1 0.8.0-rc.4",
- "pkcs8 0.11.0",
- "rand_core 0.10.0",
- "sha2 0.11.0",
- "signature 3.0.0",
- "spki 0.8.1",
  "zeroize",
 ]
 
@@ -10135,13 +10097,11 @@ dependencies = [
  "p521 0.14.0",
  "pageant",
  "pbkdf2 0.13.0",
- "pkcs1 0.8.0-rc.4",
  "pkcs5",
  "pkcs8 0.11.0",
  "polyval 0.7.3",
  "rand 0.10.3",
  "rand_core 0.10.0",
- "rsa 0.10.0-rc.18",
  "russh-cryptovec",
  "russh-util",
  "salsa20 0.11.0",
@@ -11719,7 +11679,7 @@ dependencies = [
  "once_cell",
  "percent-encoding",
  "rand 0.8.8",
- "rsa 0.9.10",
+ "rsa",
  "serde",
  "sha1 0.10.6",
  "sha2 0.10.9",
@@ -11844,7 +11804,6 @@ checksum = "7b54d0ed0498daf3f78d82e00e28c8eec9d75a067c4cfbcc7a0f7d0f4077749e"
 dependencies = [
  "base64ct",
  "bytes",
- "crypto-bigint 0.7.5",
  "ctutils",
  "digest 0.11.2",
  "pem-rfc7468 1.0.0",
@@ -11862,7 +11821,7 @@ dependencies = [
  "p384 0.13.1",
  "p521 0.13.3",
  "rand_core 0.6.4",
- "rsa 0.9.10",
+ "rsa",
  "sec1 0.7.3",
  "sha2 0.10.9",
  "signature 2.2.0",
@@ -11888,7 +11847,6 @@ dependencies = [
  "p384 0.14.0",
  "p521 0.14.0",
  "rand_core 0.10.0",
- "rsa 0.10.0-rc.18",
  "sec1 0.8.1",
  "sha1 0.11.0",
  "sha2 0.11.0",
