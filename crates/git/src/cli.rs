@@ -405,6 +405,7 @@ impl GitCli {
         branch: &str,
         force: bool,
     ) -> Result<(), GitCliError> {
+        let branch = self.require_local_branch(repo_path, branch)?;
         let refspec = if force {
             format!("+refs/heads/{branch}:refs/heads/{branch}")
         } else {

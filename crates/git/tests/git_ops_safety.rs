@@ -1615,3 +1615,32 @@ fn worktree_paths_are_not_parsed_as_options() {
     git.worktree_remove(&repo_path, second, false).unwrap();
     assert!(!repo_path.join(second).exists());
 }
+
+#[test]
+fn push_rejects_wildcard_refspec_before_remote_mutation() {
+    let root = TempDir::new().unwrap();
+    let local = root.path().join("local");
+    let remote_path = root.path().join("remote.git");
+    let service = GitService::new();
+    service.initialize_repo_with_main_branch(&local).unwrap();
+    let repo = Repository::open(&local).unwrap();
+    configure_user(&repo);
+    write_file(&local, "file.txt", "committed content\n");
+    service.commit(&local, "fixture").unwrap();
+    create_branch_from_head(&repo, "private-feature");
+    let remote = Repository::init_bare(&remote_path).unwrap();
+    let cli = GitCli::new();
+    for branch in ["*", "main:refs/heads/other", "--all", "missing"] {
+        for force in [false, true] {
+            assert!(matches!(
+                cli.push(&local, remote_path.to_str().unwrap(), branch, force),
+                Err(GitCliError::InvalidOperand(_))
+            ));
+            assert_eq!(remote.references().unwrap().count(), 0);
+        }
+    }
+    cli.push(&local, remote_path.to_str().unwrap(), "main", false)
+        .unwrap();
+    assert!(remote.find_reference("refs/heads/main").is_ok());
+    assert!(remote.find_reference("refs/heads/private-feature").is_err());
+}

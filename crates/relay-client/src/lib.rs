@@ -426,14 +426,14 @@ impl RelayHostTransport {
             target_path,
             body,
         );
-        let url = format!(
-            "{}{target_path}",
-            relay_session_url(
+        let url = relay_target_url(
+            &relay_session_url(
                 self.relay_base_url(),
                 self.auth_state.remote_session.host_id,
-                self.auth_state.remote_session.id
-            )
-        );
+                self.auth_state.remote_session.id,
+            ),
+            target_path,
+        )?;
         let reqwest_method = reqwest::Method::from_bytes(method.as_str().as_bytes())
             .map_err(|e| RelayApiError::Other(format!("Unsupported HTTP method: {e}")))?;
         let mut builder = self.api_client.http.request(reqwest_method, url);
@@ -473,14 +473,15 @@ impl RelayHostTransport {
             &[],
         );
 
-        let ws_url = relay_http_to_ws_url(&format!(
-            "{}{target_path}",
-            relay_session_url(
+        let target_url = relay_target_url(
+            &relay_session_url(
                 self.relay_base_url(),
                 self.auth_state.remote_session.host_id,
-                self.auth_state.remote_session.id
-            )
-        ))?;
+                self.auth_state.remote_session.id,
+            ),
+            target_path,
+        )?;
+        let ws_url = relay_http_to_ws_url(target_url.as_str())?;
         let mut ws_request = ws_url.into_client_request()?;
 
         if let Some(value) = protocols
@@ -539,6 +540,26 @@ fn relay_session_url(base_url: &str, host_id: Uuid, session_id: Uuid) -> String 
         "{}/v1/relay/h/{host_id}/s/{session_id}",
         base_url.trim_end_matches('/')
     )
+}
+
+#[allow(clippy::result_large_err)]
+fn relay_target_url(session_url: &str, target_path: &str) -> Result<reqwest::Url, RelayApiError> {
+    let invalid = || RelayApiError::Other("relay target must remain inside its session".into());
+    if !target_path.starts_with('/')
+        || target_path.starts_with("//")
+        || target_path.contains(['\\', '#'])
+        || target_path.chars().any(char::is_control)
+    {
+        return Err(invalid());
+    }
+    let session = reqwest::Url::parse(session_url).map_err(|_| invalid())?;
+    let target =
+        reqwest::Url::parse(&format!("{session_url}{target_path}")).map_err(|_| invalid())?;
+    let prefix = format!("{}/", session.path().trim_end_matches('/'));
+    if target.origin() != session.origin() || !target.path().starts_with(&prefix) {
+        return Err(invalid());
+    }
+    Ok(target)
 }
 
 #[allow(clippy::result_large_err)]
@@ -638,7 +659,40 @@ mod tests {
         net::TcpListener,
     };
 
-    use super::{relay_http_client, validate_relay_base_url};
+    use super::{relay_http_client, relay_target_url, validate_relay_base_url};
+
+    #[test]
+    fn relay_targets_cannot_escape_the_session() {
+        let session = "https://relay.example.com/base/v1/relay/h/host/s/session";
+        for path in [
+            "/../other",
+            "/%2e%2e/other",
+            "/.%2e/other",
+            "/%2e./other",
+            "/api/../../other",
+            "//evil.example.com",
+            "https://evil.example.com",
+            "/api#fragment",
+            "/api\\..\\..\\other",
+            "/api\nother",
+        ] {
+            assert!(
+                relay_target_url(session, path).is_err(),
+                "accepted {path:?}"
+            );
+        }
+        for path in [
+            "/",
+            "/api/tasks",
+            "/api/tasks?search=../&next=https://example.com",
+            "/api/a%2Fb",
+        ] {
+            assert_eq!(
+                relay_target_url(session, path).unwrap().as_str(),
+                format!("{session}{path}")
+            );
+        }
+    }
 
     #[test]
     fn relay_credentials_require_secure_remote_transport() {
