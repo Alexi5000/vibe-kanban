@@ -1803,6 +1803,8 @@ mod transport_boundary_tests {
             let target = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
             let base = format!("http://{}", source.local_addr().unwrap());
             let location = format!("http://{}/leak", target.local_addr().unwrap());
+            let password = uuid::Uuid::new_v4().to_string();
+            let expected_auth = BASE64.encode(format!("opencode:{password}")).to_lowercase();
             let server = tokio::spawn(async move {
                 let (mut socket, _) = source.accept().await.unwrap();
                 let mut bytes = [0; 4096];
@@ -1815,11 +1817,10 @@ mod transport_boundary_tests {
                 }
                 let request = String::from_utf8_lossy(&bytes[..count]).to_lowercase();
                 assert!(request.starts_with("get /global/health "));
-                let auth = BASE64.encode("opencode:local-test-password").to_lowercase();
-                assert!(request.contains(&format!("authorization: basic {auth}")));
+                assert!(request.contains(&format!("authorization: basic {expected_auth}")));
                 socket.write_all(format!("HTTP/1.1 {status} Test\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes()).await.unwrap();
             });
-            let response = build_opencode_client("/tmp/workspace", "local-test-password")
+            let response = build_opencode_client("/tmp/workspace", &password)
                 .unwrap()
                 .get(format!("{base}/global/health"))
                 .send()
