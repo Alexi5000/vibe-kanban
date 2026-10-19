@@ -185,6 +185,8 @@ async fn bulk_update_projects(
     Extension(ctx): Extension<RequestContext>,
     Json(payload): Json<BulkUpdateProjectsRequest>,
 ) -> Result<Json<BulkUpdateProjectsResponse>, ErrorResponse> {
+    super::validate_bulk_update_count(payload.updates.len())?;
+
     if payload.updates.is_empty() {
         return Ok(Json(BulkUpdateProjectsResponse {
             data: vec![],
@@ -208,7 +210,7 @@ async fn bulk_update_projects(
         ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
     })?;
 
-    let mut results = Vec::with_capacity(payload.updates.len());
+    let mut results = Vec::new();
 
     for item in payload.updates {
         let project = ProjectRepository::find_by_id(&mut *tx, item.id)
