@@ -4,9 +4,10 @@ on:
   pull_request:
     branches:
       - main
-    paths-ignore:
-      - .github/workflows/**
-      - '!.github/workflows/test.yml'
+    paths:
+      - '**'
+      - '!.github/workflows/**'
+      - '.github/workflows/test.yml'
   push:
     branches:
       - main
