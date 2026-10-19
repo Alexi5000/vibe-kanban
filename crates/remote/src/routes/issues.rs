@@ -493,6 +493,8 @@ async fn bulk_update_issues(
     Extension(ctx): Extension<RequestContext>,
     Json(payload): Json<BulkUpdateIssuesRequest>,
 ) -> Result<Json<BulkUpdateIssuesResponse>, ErrorResponse> {
+    super::validate_bulk_update_count(payload.updates.len())?;
+
     if payload.updates.is_empty() {
         return Ok(Json(BulkUpdateIssuesResponse {
             data: vec![],
@@ -517,8 +519,9 @@ async fn bulk_update_issues(
         ErrorResponse::new(StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
     })?;
 
-    let mut results = Vec::with_capacity(payload.updates.len());
-    let mut notification_pairs = Vec::with_capacity(payload.updates.len());
+    let mut results = Vec::with_capacity(payload.updates.len().min(super::MAX_BULK_UPDATES));
+    let mut notification_pairs =
+        Vec::with_capacity(payload.updates.len().min(super::MAX_BULK_UPDATES));
 
     for item in payload.updates {
         // Verify issue belongs to the same project

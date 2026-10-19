@@ -199,3 +199,38 @@ pub fn all_mutation_definitions() -> Vec<crate::mutation_definition::MutationDef
         pull_request_issues::mutation().definition(),
     ]
 }
+
+const MAX_BULK_UPDATES: usize = 1000;
+
+fn validate_bulk_update_count(count: usize) -> Result<(), error::ErrorResponse> {
+    if count > MAX_BULK_UPDATES {
+        return Err(error::ErrorResponse::new(
+            axum::http::StatusCode::PAYLOAD_TOO_LARGE,
+            "bulk updates are limited to 1000 items per request",
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod bulk_limit_tests {
+    use axum::{http::StatusCode, response::IntoResponse};
+
+    use super::validate_bulk_update_count;
+
+    #[test]
+    fn bulk_limit_accepts_boundary_and_rejects_oversized_requests() {
+        for count in [0, 1, 999, 1000] {
+            assert!(validate_bulk_update_count(count).is_ok());
+        }
+        for count in [1001, usize::MAX] {
+            assert_eq!(
+                validate_bulk_update_count(count)
+                    .unwrap_err()
+                    .into_response()
+                    .status(),
+                StatusCode::PAYLOAD_TOO_LARGE
+            );
+        }
+    }
+}

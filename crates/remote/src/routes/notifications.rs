@@ -232,6 +232,8 @@ async fn bulk_update_notifications(
     Extension(ctx): Extension<RequestContext>,
     Json(payload): Json<BulkUpdateNotificationsRequest>,
 ) -> Result<Json<BulkUpdateNotificationsResponse>, ErrorResponse> {
+    super::validate_bulk_update_count(payload.updates.len())?;
+
     if payload.updates.is_empty() {
         return Ok(Json(BulkUpdateNotificationsResponse {
             data: vec![],
@@ -263,7 +265,7 @@ async fn bulk_update_notifications(
         ));
     }
 
-    let mut results = Vec::with_capacity(payload.updates.len());
+    let mut results = Vec::with_capacity(payload.updates.len().min(super::MAX_BULK_UPDATES));
 
     for item in payload.updates {
         let existing = NotificationRepository::find_by_id(&mut *tx, item.id)

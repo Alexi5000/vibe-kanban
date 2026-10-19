@@ -10,10 +10,35 @@ use super::jwt::{GitHubAppJwt, JwtError};
 use crate::config::GitHubAppConfig;
 
 const USER_AGENT: &str = "VibeKanbanRemote/1.0";
-const GITHUB_API_BASE: &str = "https://api.github.com";
+fn github_api_url(segments: &[&str]) -> Result<reqwest::Url, GitHubAppError> {
+    if segments.iter().any(|segment| {
+        segment.is_empty()
+            || *segment == "."
+            || *segment == ".."
+            || !segment
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+    }) {
+        return Err(GitHubAppError::InvalidPath);
+    }
+    let mut url = reqwest::Url::parse("https://api.github.com").expect("fixed GitHub API URL");
+    url.path_segments_mut()
+        .expect("GitHub URL supports paths")
+        .extend(segments);
+    Ok(url)
+}
+
+fn github_http_client() -> Result<Client, reqwest::Error> {
+    Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+}
 
 #[derive(Debug, Error)]
 pub enum GitHubAppError {
+    #[error("Invalid GitHub API path")]
+    InvalidPath,
     #[error("JWT error: {0}")]
     Jwt(#[from] JwtError),
     #[error("HTTP request failed: {0}")]
@@ -90,12 +115,12 @@ pub struct GitHubAppService {
 }
 
 impl GitHubAppService {
-    pub fn new(config: &GitHubAppConfig, client: Client) -> Result<Self, GitHubAppError> {
+    pub fn new(config: &GitHubAppConfig) -> Result<Self, GitHubAppError> {
         let jwt_generator = GitHubAppJwt::new(config.app_id, config.private_key.clone())?;
 
         Ok(Self {
             jwt_generator,
-            client,
+            client: github_http_client()?,
             app_slug: config.app_slug.clone(),
             webhook_secret: config.webhook_secret.clone(),
         })
@@ -118,14 +143,16 @@ impl GitHubAppService {
     ) -> Result<String, GitHubAppError> {
         let jwt = self.jwt_generator.generate()?;
 
-        let url = format!(
-            "{}/app/installations/{}/access_tokens",
-            GITHUB_API_BASE, installation_id
-        );
+        let url = github_api_url(&[
+            "app",
+            "installations",
+            &installation_id.to_string(),
+            "access_tokens",
+        ])?;
 
         let response = self
             .client
-            .post(&url)
+            .post(url.clone())
             .header("Authorization", format!("Bearer {}", jwt))
             .header("Accept", "application/vnd.github+json")
             .header("User-Agent", USER_AGENT)
@@ -160,11 +187,11 @@ impl GitHubAppService {
     ) -> Result<InstallationInfo, GitHubAppError> {
         let jwt = self.jwt_generator.generate()?;
 
-        let url = format!("{}/app/installations/{}", GITHUB_API_BASE, installation_id);
+        let url = github_api_url(&["app", "installations", &installation_id.to_string()])?;
 
         let response = self
             .client
-            .get(&url)
+            .get(url.clone())
             .header("Authorization", format!("Bearer {}", jwt))
             .header("Accept", "application/vnd.github+json")
             .header("User-Agent", USER_AGENT)
@@ -192,7 +219,7 @@ impl GitHubAppService {
         installation_id: i64,
     ) -> Result<Vec<Repository>, GitHubAppError> {
         let token = self.get_installation_token(installation_id).await?;
-        let url = format!("{}/installation/repositories", GITHUB_API_BASE);
+        let url = github_api_url(&["installation", "repositories"])?;
 
         let mut all_repos = Vec::new();
         let mut page = 1u32;
@@ -200,7 +227,7 @@ impl GitHubAppService {
         loop {
             let response = self
                 .client
-                .get(&url)
+                .get(url.clone())
                 .header("Authorization", format!("Bearer {}", token))
                 .header("Accept", "application/vnd.github+json")
                 .header("User-Agent", USER_AGENT)
@@ -241,14 +268,18 @@ impl GitHubAppService {
         let token = self.get_installation_token(installation_id).await?;
 
         // Use the issues API to post comments (PRs are issues in GitHub)
-        let url = format!(
-            "{}/repos/{}/{}/issues/{}/comments",
-            GITHUB_API_BASE, owner, repo, pr_number
-        );
+        let url = github_api_url(&[
+            "repos",
+            owner,
+            repo,
+            "issues",
+            &pr_number.to_string(),
+            "comments",
+        ])?;
 
         let response = self
             .client
-            .post(&url)
+            .post(url.clone())
             .header("Authorization", format!("Bearer {}", token))
             .header("Accept", "application/vnd.github+json")
             .header("User-Agent", USER_AGENT)
@@ -426,14 +457,11 @@ impl GitHubAppService {
     ) -> Result<PrDetails, GitHubAppError> {
         let token = self.get_installation_token(installation_id).await?;
 
-        let url = format!(
-            "{}/repos/{}/{}/pulls/{}",
-            GITHUB_API_BASE, owner, repo, pr_number
-        );
+        let url = github_api_url(&["repos", owner, repo, "pulls", &pr_number.to_string()])?;
 
         let response = self
             .client
-            .get(&url)
+            .get(url.clone())
             .header("Authorization", format!("Bearer {}", token))
             .header("Accept", "application/vnd.github+json")
             .header("User-Agent", USER_AGENT)
@@ -449,5 +477,67 @@ impl GitHubAppService {
 
         let pr: PrDetails = response.json().await?;
         Ok(pr)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn github_paths_cannot_change_origin_or_route() {
+        for bad in [
+            "",
+            ".",
+            "..",
+            "a/b",
+            "%2e%2e",
+            "x?query=1",
+            "x#frag",
+            "https://evil.test",
+            "a\\b",
+        ] {
+            assert!(github_api_url(&["repos", bad, "repo"]).is_err());
+        }
+        let url = github_api_url(&["app", "installations", "123", "access_tokens"]).unwrap();
+        assert_eq!(
+            url.as_str(),
+            "https://api.github.com/app/installations/123/access_tokens"
+        );
+        assert_eq!(
+            github_api_url(&["repos", "my-org", "my_repo.rs", "pulls", "42"])
+                .unwrap()
+                .host_str(),
+            Some("api.github.com")
+        );
+    }
+
+    #[tokio::test]
+    async fn github_client_never_follows_api_redirects() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let source = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let target = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let source_url = format!("http://{}", source.local_addr().unwrap());
+        let location = format!("http://{}", target.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = source.accept().await.unwrap();
+            let mut bytes = [0; 4096];
+            assert!(socket.read(&mut bytes).await.unwrap() > 0);
+            socket.write_all(format!("HTTP/1.1 302 Found\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes()).await.unwrap();
+        });
+        let response = github_http_client()
+            .unwrap()
+            .get(source_url)
+            .bearer_auth("test-token")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::FOUND);
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(50), target.accept())
+                .await
+                .is_err()
+        );
+        server.await.unwrap();
     }
 }
