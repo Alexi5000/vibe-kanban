@@ -317,6 +317,33 @@ fn format_tail(captured: Vec<String>) -> String {
         .join("\n")
 }
 
+fn validate_server_url(value: &str) -> Result<String, ExecutorError> {
+    let invalid = || {
+        ExecutorError::Io(std::io::Error::other(
+            "OpenCode must listen on an HTTP loopback address with an explicit nonzero port",
+        ))
+    };
+    let url = reqwest::Url::parse(value.trim()).map_err(|_| invalid())?;
+    let loopback = url.host_str().is_some_and(|host| {
+        host.trim_start_matches('[')
+            .trim_end_matches(']')
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|address| address.is_loopback())
+    });
+    if url.scheme() != "http"
+        || !loopback
+        || !matches!(url.port(), Some(1..=65535))
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.path() != "/"
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return Err(invalid());
+    }
+    Ok(url.as_str().trim_end_matches('/').to_string())
+}
+
 async fn wait_for_server_url(
     stdout: tokio::process::ChildStdout,
     log_writer: Option<LogWriter>,
@@ -357,12 +384,13 @@ async fn wait_for_server_url(
         }
 
         if let Some(url) = line.trim().strip_prefix("opencode server listening on ") {
+            let url = validate_server_url(url)?;
             // Keep draining stdout to avoid backpressure on the server, but don't block startup.
             tokio::spawn(async move {
                 let mut lines = tokio::io::BufReader::new(lines.into_inner()).lines();
                 while let Ok(Some(_)) = lines.next_line().await {}
             });
-            return Ok(url.trim().to_string());
+            return Ok(url);
         }
     }
 }
@@ -819,4 +847,46 @@ fn merge_compaction_config(existing_json: Option<&str>) -> String {
     config.insert("compaction".to_string(), Value::Object(compaction));
 
     serde_json::to_string(&config).unwrap_or_else(|_| r#"{"compaction":{"auto":true}}"#.to_string())
+}
+
+#[cfg(test)]
+mod transport_boundary_tests {
+    use super::validate_server_url;
+
+    #[test]
+    fn accepts_literal_loopback_listeners() {
+        for value in [
+            "http://127.0.0.1:32123",
+            "http://127.0.0.2:32123",
+            "http://[::1]:32123",
+        ] {
+            assert_eq!(validate_server_url(value).unwrap(), value);
+            assert_eq!(validate_server_url(&format!(" {value}/ ")).unwrap(), value);
+        }
+    }
+
+    #[test]
+    fn rejects_nonlocal_and_ambiguous_listeners() {
+        for value in [
+            "http://example.com:32123",
+            "http://localhost:32123",
+            "http://127.0.0.1.example.com:32123",
+            "http://0.0.0.0:32123",
+            "http://192.168.1.1:32123",
+            "http://169.254.169.254:32123",
+            "http://[::]:32123",
+            "http://[::ffff:127.0.0.1]:32123",
+            "https://127.0.0.1:32123",
+            "file:///tmp/server",
+            "not a URL",
+            "http://127.0.0.1",
+            "http://127.0.0.1:0",
+            "http://user:pass@127.0.0.1:32123",
+            "http://127.0.0.1:32123/api",
+            "http://127.0.0.1:32123?target=remote",
+            "http://127.0.0.1:32123#fragment",
+        ] {
+            assert!(validate_server_url(value).is_err(), "accepted {value}");
+        }
+    }
 }
