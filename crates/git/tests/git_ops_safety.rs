@@ -1644,3 +1644,63 @@ fn push_rejects_wildcard_refspec_before_remote_mutation() {
     assert!(remote.find_reference("refs/heads/main").is_ok());
     assert!(remote.find_reference("refs/heads/private-feature").is_err());
 }
+
+#[test]
+fn merge_base_preserves_fork_point_after_upstream_is_rewritten() {
+    let root = TempDir::new().unwrap();
+    let (repo_path, worktree_path) = setup_repo_with_worktree(&root);
+    let repo = Repository::open(&repo_path).unwrap();
+    let old = repo
+        .find_reference("refs/heads/old-base")
+        .unwrap()
+        .peel_to_commit()
+        .unwrap();
+    let signature = repo.signature().unwrap();
+    let unrelated = repo
+        .commit(
+            None,
+            &signature,
+            &signature,
+            "rewritten upstream",
+            &old.tree().unwrap(),
+            &[],
+        )
+        .unwrap();
+    repo.reference("refs/heads/old-base", unrelated, true, "rewrite upstream")
+        .unwrap();
+    let actual = GitCli::new()
+        .merge_base(&worktree_path, "old-base", "feature")
+        .unwrap();
+    assert_eq!(actual, old.id().to_string());
+}
+
+#[test]
+fn rebase_resolves_commit_operands_and_rejects_noncommit_objects() {
+    let root = TempDir::new().unwrap();
+    let (_repo_path, worktree_path) = setup_repo_with_worktree(&root);
+    let git = GitCli::new();
+    let repo = Repository::open(&worktree_path).unwrap();
+    let initial = repo.head().unwrap().target().unwrap();
+    for revision in ["new-base^{tree}", "no-such-revision", "--exec=true"] {
+        assert!(matches!(
+            git.rebase_onto(&worktree_path, revision, "old-base", "feature"),
+            Err(GitCliError::InvalidOperand(_))
+        ));
+        assert_eq!(repo.head().unwrap().target().unwrap(), initial);
+    }
+    git.rebase_onto(
+        &worktree_path,
+        "new-base^{commit}",
+        "old-base^{commit}",
+        "feature",
+    )
+    .unwrap();
+    let tree = repo
+        .head()
+        .unwrap()
+        .peel_to_commit()
+        .unwrap()
+        .tree()
+        .unwrap();
+    assert!(tree.get_name("feat.txt").is_some());
+}
