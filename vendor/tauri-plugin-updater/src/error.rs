@@ -12,6 +12,8 @@ pub enum Error {
     /// Endpoints are not sent.
     #[error("Updater does not have any endpoints set.")]
     EmptyEndpoints,
+    #[error("Updater TLS certificate and hostname verification cannot be disabled.")]
+    InsecureTlsConfiguration,
     /// IO errors.
     #[error(transparent)]
     Io(#[from] std::io::Error),

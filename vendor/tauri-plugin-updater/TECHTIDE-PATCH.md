@@ -4,7 +4,10 @@ Source: published `tauri-plugin-updater` 2.10.0, upstream commit
 `50b159f668a5fcf42d6356e2af1dc549632b413d`, `plugins/updater` in
 https://github.com/tauri-apps/plugins-workspace.
 
-Runtime behavior, permissions, build script and upstream licenses are retained.
+Permissions, build script and upstream licenses are retained.
+TLS certificate/hostname verification bypass options are now rejected during
+configuration, updater construction and requests. Vibe does not enable these
+options; normal verified HTTPS behavior is preserved.
 Two source files are formatted to the repository Rust style.
 The normalized Cargo manifest replaces Windows ZIP 4 with ZIP 9.0.5 and
 raises the plugin's Rust minimum to 1.88, as required by ZIP 9. The application

@@ -103,6 +103,15 @@ pub struct Config {
     pub windows: Option<WindowsConfig>,
 }
 
+impl Config {
+    pub(crate) fn validate_tls(&self) -> crate::Result<()> {
+        if self.dangerous_accept_invalid_certs || self.dangerous_accept_invalid_hostnames {
+            return Err(crate::Error::InsecureTlsConfiguration);
+        }
+        Ok(())
+    }
+}
+
 impl<'de> Deserialize<'de> for Config {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -131,14 +140,16 @@ impl<'de> Deserialize<'de> for Config {
         )
         .map_err(serde::de::Error::custom)?;
 
-        Ok(Self {
+        let config = Self {
             dangerous_insecure_transport_protocol: config.dangerous_insecure_transport_protocol,
             dangerous_accept_invalid_certs: config.dangerous_accept_invalid_certs,
             dangerous_accept_invalid_hostnames: config.dangerous_accept_invalid_hostnames,
             endpoints: config.endpoints,
             pubkey: config.pubkey,
             windows: config.windows,
-        })
+        };
+        config.validate_tls().map_err(serde::de::Error::custom)?;
+        Ok(config)
     }
 }
 
@@ -161,4 +172,52 @@ pub(crate) fn validate_endpoints(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tls_tests {
+    use super::Config;
+
+    #[test]
+    fn accepts_default_and_explicit_verified_tls() {
+        for value in [
+            serde_json::json!({"pubkey": "test", "endpoints": ["https://example.com/update"]}),
+            serde_json::json!({"pubkey": "test", "dangerousAcceptInvalidCerts": false, "dangerousAcceptInvalidHostnames": false}),
+        ] {
+            let config: Config = serde_json::from_value(value).unwrap();
+            assert!(config.validate_tls().is_ok());
+        }
+    }
+
+    #[test]
+    fn rejects_disabled_tls_verification_in_config() {
+        for field in [
+            "dangerousAcceptInvalidCerts",
+            "dangerousAcceptInvalidHostnames",
+            "dangerous-accept-invalid-certs",
+            "dangerous-accept-invalid-hostnames",
+        ] {
+            let mut value = serde_json::json!({"pubkey": "test"});
+            value[field] = true.into();
+            let error = serde_json::from_value::<Config>(value).unwrap_err();
+            assert!(error
+                .to_string()
+                .contains("verification cannot be disabled"));
+        }
+    }
+
+    #[test]
+    fn rejects_programmatic_tls_bypass_configuration() {
+        for (certs, hostnames) in [(true, false), (false, true), (true, true)] {
+            let config = Config {
+                dangerous_accept_invalid_certs: certs,
+                dangerous_accept_invalid_hostnames: hostnames,
+                ..Config::default()
+            };
+            assert!(matches!(
+                config.validate_tls(),
+                Err(crate::Error::InsecureTlsConfiguration)
+            ));
+        }
+    }
 }

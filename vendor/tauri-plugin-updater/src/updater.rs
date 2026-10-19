@@ -303,6 +303,7 @@ impl UpdaterBuilder {
     }
 
     pub fn build(self) -> Result<Updater> {
+        self.config.validate_tls()?;
         let endpoints = self
             .endpoints
             .unwrap_or_else(|| self.config.endpoints.clone());
@@ -383,6 +384,7 @@ pub struct Updater {
 
 impl Updater {
     pub async fn check(&self) -> Result<Option<Update>> {
+        self.config.validate_tls()?;
         // we want JSON only
         let mut headers = self.headers.clone();
         if !headers.contains_key(ACCEPT) {
@@ -448,12 +450,6 @@ impl Updater {
             }
 
             let mut request = ClientBuilder::new().user_agent(UPDATER_USER_AGENT);
-            if self.config.dangerous_accept_invalid_certs {
-                request = request.danger_accept_invalid_certs(true);
-            }
-            if self.config.dangerous_accept_invalid_hostnames {
-                request = request.danger_accept_invalid_hostnames(true);
-            }
             if let Some(timeout) = self.timeout {
                 request = request.timeout(timeout);
             }
@@ -653,6 +649,7 @@ impl Update {
         mut on_chunk: C,
         on_download_finish: D,
     ) -> Result<Vec<u8>> {
+        self.config.validate_tls()?;
         // set our headers
         let mut headers = self.headers.clone();
         if !headers.contains_key(ACCEPT) {
@@ -660,12 +657,6 @@ impl Update {
         }
 
         let mut request = ClientBuilder::new().user_agent(UPDATER_USER_AGENT);
-        if self.config.dangerous_accept_invalid_certs {
-            request = request.danger_accept_invalid_certs(true);
-        }
-        if self.config.dangerous_accept_invalid_hostnames {
-            request = request.danger_accept_invalid_hostnames(true);
-        }
         if let Some(timeout) = self.timeout {
             request = request.timeout(timeout);
         }
