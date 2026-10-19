@@ -311,3 +311,109 @@ impl JwtService {
         Ok(hasher.finalize().into())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn service() -> JwtService {
+        JwtService::new(
+            STANDARD
+                .encode(b"compatibility-test-secret-only-32bytes")
+                .into(),
+        )
+    }
+
+    fn access_token(audience: &str, algorithm: Algorithm, expires: i64) -> String {
+        let claims = AccessTokenClaims {
+            sub: Uuid::from_u128(1),
+            session_id: Uuid::from_u128(2),
+            iat: Utc::now().timestamp(),
+            exp: expires,
+            aud: audience.into(),
+        };
+        encode(
+            &Header::new(algorithm),
+            &claims,
+            &EncodingKey::from_secret(b"compatibility-test-secret-only-32bytes"),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn accepts_independently_signed_hs256_token() {
+        let token = concat!(
+            "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.",
+            "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzZXNzaW9uX2lkIjoiMjIyMjIyMjItMjIyMi00MjIyLTgyMjItMjIyMjIyMjIyMjIyIiwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDAsImF1ZCI6ImFjY2VzcyJ9.",
+            "42ufOLdkwppTg-ERNQSrNKPnGHR9N563L7GdHvejRiY"
+        );
+        let decoded = service().decode_access_token(token).unwrap();
+        assert_eq!(
+            decoded.user_id.to_string(),
+            "11111111-1111-4111-8111-111111111111"
+        );
+        assert_eq!(
+            decoded.session_id.to_string(),
+            "22222222-2222-4222-8222-222222222222"
+        );
+    }
+
+    #[test]
+    fn preserves_access_token_verification_boundaries() {
+        let service = service();
+        let future = Utc::now().timestamp() + 300;
+        assert!(
+            service
+                .decode_access_token(&access_token("access", Algorithm::HS256, future))
+                .is_ok()
+        );
+        assert!(
+            service
+                .decode_access_token(&access_token("refresh", Algorithm::HS256, future))
+                .is_err()
+        );
+        assert!(
+            service
+                .decode_access_token(&access_token("access", Algorithm::HS384, future))
+                .is_err()
+        );
+        assert!(
+            service
+                .decode_access_token(&access_token("access", Algorithm::HS256, 1))
+                .is_err()
+        );
+        let mut token = access_token("access", Algorithm::HS256, future).into_bytes();
+        let signature = token.iter().rposition(|b| *b == b'.').unwrap() + 1;
+        token[signature] = if token[signature] == b'A' { b'B' } else { b'A' };
+        assert!(
+            service
+                .decode_access_token(std::str::from_utf8(&token).unwrap())
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn preserves_refresh_claims_and_token_type_separation() {
+        let claims = RefreshTokenClaims {
+            sub: Uuid::from_u128(1),
+            session_id: Uuid::from_u128(2),
+            jti: Uuid::from_u128(3),
+            iat: Utc::now().timestamp(),
+            exp: Utc::now().timestamp() + 300,
+            aud: "refresh".into(),
+            provider: Some("github".into()),
+            provider_tokens_blob: None,
+        };
+        let token = encode(
+            &Header::new(Algorithm::HS256),
+            &claims,
+            &EncodingKey::from_secret(b"compatibility-test-secret-only-32bytes"),
+        )
+        .unwrap();
+        let service = service();
+        let decoded = service.decode_refresh_token(&token).unwrap();
+        assert_eq!(decoded.refresh_token_id, claims.jti);
+        assert_eq!(decoded.provider, "github");
+        assert!(service.decode_access_token(&token).is_err());
+    }
+}
