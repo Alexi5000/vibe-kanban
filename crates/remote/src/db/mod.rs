@@ -33,7 +33,7 @@ pub mod users;
 pub mod workspaces;
 
 use sqlx::{
-    Executor, PgPool, Postgres, Transaction,
+    ConnectOptions, Connection, Executor, PgConnection, PgPool, Postgres, Transaction,
     migrate::MigrateError,
     postgres::{PgConnectOptions, PgPoolOptions},
 };
@@ -109,7 +109,12 @@ pub(crate) async fn ensure_electric_role_password(
     let escaped_password = password.replace("'", "''");
     let sql = format!("ALTER ROLE electric_sync WITH PASSWORD '{escaped_password}'");
 
-    sqlx::query(&sql).execute(pool).await?;
-
-    Ok(())
+    let options = pool
+        .connect_options()
+        .as_ref()
+        .clone()
+        .disable_statement_logging();
+    let mut connection = PgConnection::connect_with(&options).await?;
+    sqlx::query(&sql).execute(&mut connection).await?;
+    connection.close().await
 }
