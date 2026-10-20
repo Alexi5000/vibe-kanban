@@ -23,7 +23,8 @@ impl AnalyticsConfig {
     pub fn new() -> Option<Self> {
         let api_key = option_env!("POSTHOG_API_KEY")
             .map(|s| s.to_string())
-            .or_else(|| std::env::var("POSTHOG_API_KEY").ok())?;
+            .or_else(|| std::env::var("POSTHOG_API_KEY").ok())
+            .or_else(cargo_run_posthog_key)?;
         let api_endpoint = option_env!("POSTHOG_API_ENDPOINT")
             .map(|s| s.to_string())
             .or_else(|| std::env::var("POSTHOG_API_ENDPOINT").ok())?;
@@ -33,6 +34,18 @@ impl AnalyticsConfig {
             posthog_api_endpoint: api_endpoint,
         })
     }
+}
+
+fn cargo_run_posthog_key() -> Option<String> {
+    let manifest = std::env::var_os("CARGO_MANIFEST_DIR")?;
+    posthog_key_from_dotenv(std::path::Path::new(&manifest).join("../../.env"))
+}
+
+fn posthog_key_from_dotenv(path: impl AsRef<std::path::Path>) -> Option<String> {
+    dotenvy::from_path_iter(path).ok()?.find_map(|entry| {
+        let (key, value) = entry.ok()?;
+        (key == "POSTHOG_API_KEY").then_some(value)
+    })
 }
 
 #[derive(Clone, Debug)]
@@ -186,6 +199,23 @@ fn get_device_info() -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dotenv_key_preserves_quoted_values_without_exporting_other_variables() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join(".env");
+        std::fs::write(
+            &file,
+            "UNRELATED_SYNTHETIC_ANALYTICS_KEY=ignored\nPOSTHOG_API_KEY='quoted synthetic value'\n",
+        )
+        .unwrap();
+        assert_eq!(
+            posthog_key_from_dotenv(&file).as_deref(),
+            Some("quoted synthetic value")
+        );
+        assert!(std::env::var_os("UNRELATED_SYNTHETIC_ANALYTICS_KEY").is_none());
+        assert!(posthog_key_from_dotenv(directory.path().join("missing")).is_none());
+    }
 
     #[test]
     fn test_generate_user_id_format() {

@@ -11123,6 +11123,7 @@ dependencies = [
  "dashmap",
  "db",
  "dirs 5.0.1",
+ "dotenvy",
  "dunce",
  "executors",
  "fst",
