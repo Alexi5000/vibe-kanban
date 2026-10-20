@@ -6,47 +6,101 @@
   </picture>
 </p>
 
-<p align="center"><strong>Agent task orchestration board</strong> — real-time visibility into what AI agents are doing across your repos.</p>
+<p align="center"><strong>Agent task orchestration board</strong>: real-time visibility into what AI agents are doing across your repos.</p>
 
 ![](packages/public/vibe-kanban-screenshot-overview.png)
 
-## The problem
+## Why this fork exists
 
-Agent orchestration without visibility is chaos. When five coding agents are
-working three repos — each spawning sub-agents, managing task queues, opening
-PRs — the operator needs a board that shows what agents are *actually doing*,
-not what they were asked to do three minutes ago. Stale dashboards and
-terminal scrollback don't survive contact with a 12-agent deployment.
+**What it does.** Vibe Kanban is a kanban board and workspace manager for coding agents. Each
+issue can be handed to an agent (Claude Code, Codex, Gemini CLI, Copilot, Amp, Cursor, OpenCode,
+Droid, CCR, Qwen Code) in an isolated git worktree with its own terminal and dev server, and
+agents report task state back over MCP (`crates/mcp/`). Operators review diffs with inline
+comments, preview the running app, and open or merge PRs from the board.
 
-Vibe Kanban closes that gap: a kanban board where agents report their own
-task state over MCP. What's queued, what's in-flight, what's blocked, what
-shipped — live, per agent, per repo.
+**Who it serves.** A human operator supervising several coding agents across one or more
+repositories who needs a single live view of what is queued, in flight, blocked, or shipped,
+instead of reconstructing that state from terminal scrollback.
 
-- **Plan with kanban issues** — create, prioritise, and assign work on a board
-- **Run coding agents in workspaces** — each workspace gives an agent a branch, a terminal, and a dev server
-- **Review diffs with inline comments** — send feedback straight back to the agent
-- **Preview your app** — built-in browser with devtools and device emulation
-- **Switch between 10+ coding agents** — Claude Code, Codex, Gemini CLI, Copilot, Amp, Cursor, OpenCode, Droid, CCR, Qwen Code
-- **Open and merge PRs** — with AI-generated descriptions
+**Why Alex forked it.** The fork was created on 2025-11-03 (GitHub API `created_at`). The
+first fork-only commits landed on 2026-05-21 and record the motivation directly:
+`508e86dfb` "fix: exclude ambiguous characters from relay pairing codes", `3a66c4657`
+"feat: add start_date and target_date to update_issue MCP tool", `b1f1f5818` "fix: validate MCP
+backend URL with health-check probe before use", and `1caee6001` "docs: add TechTide backstory
+document", which created [TECHTIDE.md](TECHTIDE.md). That document states the reason in Alex's
+words: "Agent orchestration without visibility is chaos. When you're running five Claude Code
+agents across three repos, each spawning sub-agents and managing their own task queues, you need
+a board that shows what agents are actually doing." The same three fixes were offered upstream as
+BloopAI PRs [#3418](https://github.com/BloopAI/vibe-kanban/pull/3418),
+[#3419](https://github.com/BloopAI/vibe-kanban/pull/3419), and
+[#3420](https://github.com/BloopAI/vibe-kanban/pull/3420). On 2026-07-06 the fork added an
+offline orchestration-contract harness (`packages/fde`, merge `fd2e96e0f`, PR #1), and after the
+upstream company shut down on 2026-04-10[^1] the fork took over its own dependency and security
+maintenance (32 merged PRs, #2 through #36, 2026-10-18 to 2026-10-20; see Upstream below).
 
-We run this fork in production at [TechTide AI](https://github.com/TechTideOhio)
-to keep human operators in the loop on multi-agent client deployments —
-delivery monitoring, incident response when an agent wedges, and sprint
-retrospectives over agent throughput. See [TECHTIDE.md](TECHTIDE.md).
+**Real-world use case (2025-2026 evidence).** **Proposed use case.** A solo maintainer or small
+team runs three to five coding agents in parallel on a monorepo, one worktree each, and uses
+the board as the human checkpoint before anything merges. The agents push status through MCP
+tool calls using the 2025-06-18 protocol revision, which added structured tool output and
+tightened authorization requirements for exactly this kind of agent-to-server reporting[^2]. The
+checkpoint matters: in the 2025 Stack Overflow Developer Survey, 84% of respondents use or plan
+to use AI tools, yet 46% distrust the accuracy of AI output and 76% do not plan to hand
+deployment and monitoring to AI[^3]. Anthropic's 2025 engineering write-up on multi-agent
+systems reached a similar conclusion, noting that coding tasks have fewer truly parallelizable
+pieces than research and that agents "are not yet great at coordinating and delegating to other
+agents in real time", which is the gap a shared board fills[^4]. What this repository verifies
+today is narrower than the scenario: the Rust test suite and the offline FDE harness run in CI
+on every change (see Proof, honestly scoped). No customer deployment, throughput result, or
+incident outcome is claimed.
 
-## Fork status
+[^1]: Louis Knight-Webb, "Goodbye bloop", vibekanban.com, published 2026-04-10. https://www.vibekanban.com/blog/shutdown
+[^2]: Model Context Protocol, "Key Changes", specification revision 2025-06-18. https://modelcontextprotocol.io/specification/2025-06-18/changelog
+[^3]: Stack Overflow, "2025 Developer Survey: AI", published 2025. https://survey.stackoverflow.co/2025/ai
+[^4]: Anthropic Engineering, "How we built our multi-agent research system", published 2025-06-13. https://www.anthropic.com/engineering/multi-agent-research-system
 
-This is a maintained fork of
-[BloopAI/vibe-kanban](https://github.com/BloopAI/vibe-kanban) (Apache-2.0).
-**Upstream is sunsetting** ([announcement](https://www.vibekanban.com/blog/shutdown)),
-so this fork stands on its own from `v0.1.44`. We contributed fixes upstream
-while it was active:
+## Upstream
+
+- Upstream: [BloopAI/vibe-kanban](https://github.com/BloopAI/vibe-kanban), licensed Apache-2.0.
+  This fork keeps the same license; the `LICENSE` file is unchanged and the fork is not relicensed.
+- Fork created: 2025-11-03. Upstream's company announced its shutdown on 2026-04-10 and said the
+  project would continue as community-maintained open source[^1]; this fork stands on its own
+  from `v0.1.44`.
+- Divergence as of 2026-10-20: 46 commits ahead and 10 commits behind upstream `main`
+  (`gh api repos/Alexi5000/vibe-kanban/compare/BloopAI:main...Alexi5000:main`); 393 files
+  changed, +82,003 / -6,359 lines against the merge base (`git diff --stat upstream/main...origin/main`;
+  the API response caps its file list at 300).
+- `npx vibe-kanban` installs upstream's final published npm release, not this fork.
+
+**What changed in this fork** (from `git log upstream/main..origin/main`):
+
+- 2026-05-21: relay pairing-code fix, MCP `update_issue` date fields, MCP backend URL
+  health-check (4 commits, also submitted upstream as PRs #3418 to #3420; #3438 still open).
+- 2026-07-06 to 07-07: FDE orchestration contracts and offline harness (`packages/fde`,
+  `contracts/`, `notebooks/`, `docs/adr/`), root `docker-compose.yml`, CI guards so upstream-only
+  deploy and release jobs do not run in this repository (8 commits plus 2 merge commits).
+- 2026-10-18 to 10-20: 32 merged security and dependency PRs (#2 to #36; #6, #7, and #14 were
+  closed unmerged and superseded by #8 and #15): refreshed Rust and npm
+  dependencies, vendored patched `tauri-plugin-updater`, `rama-dns`, and `codex-git-utils` under
+  `vendor/`, Git operand and path validation, relay SSRF and secure-transport fixes, loopback-only
+  OpenCode transport, read-only CI token, TLS verifier and trust-store refresh, and a private
+  vulnerability reporting policy (`SECURITY.md`).
+
+Upstream contributions made while upstream was active:
 
 | PR | Description |
 |----|-------------|
 | [#3418](https://github.com/BloopAI/vibe-kanban/pull/3418) | Exclude ambiguous characters from SPAKE2 enrollment codes |
 | [#3419](https://github.com/BloopAI/vibe-kanban/pull/3419) | Add start/target date fields to the MCP update-issue tool |
 | [#3420](https://github.com/BloopAI/vibe-kanban/pull/3420) | Fix MCP backend URL discovery with a health-check probe |
+
+## Features
+
+- **Plan with kanban issues**: create, prioritise, and assign work on a board
+- **Run coding agents in workspaces**: each workspace gives an agent a branch, a terminal, and a dev server
+- **Review diffs with inline comments**: send feedback straight back to the agent
+- **Preview your app**: built-in browser with devtools and device emulation
+- **Switch between 10+ coding agents**: Claude Code, Codex, Gemini CLI, Copilot, Amp, Cursor, OpenCode, Droid, CCR, Qwen Code
+- **Open and merge PRs**: with AI-generated descriptions
 
 ## Getting started
 
@@ -68,12 +122,13 @@ fork.
 
 ## Proof, honestly scoped
 
-Two independent proof surfaces back this repo — see
+Two independent proof surfaces back this repo; see
 [docs/FDE_GATES.md](docs/FDE_GATES.md) for the full twelve-pillar gate table:
 
-- **Product core (Rust, 33 crates).** Upstream's test suite — 263 Rust test
-  functions — runs in [.github/workflows/test.yml](.github/workflows/test.yml)
-  on every change, exactly as it did before the fork.
+- **Product core (Rust, 33 crates).** Upstream's Rust test suite (316 `#[test]` and
+  `#[tokio::test]` functions under `crates/` as of 2026-10-20) runs in
+  [.github/workflows/test.yml](.github/workflows/test.yml) on every change, exactly as it
+  did before the fork.
 - **Orchestration contract (FDE layer).** `packages/fde` is a deterministic
   offline harness: a Planner → Generator → Evaluator pipeline over typed,
   versioned sprint contracts grounded in the real task state machine
@@ -132,6 +187,26 @@ origin URL(s) of your frontend, or API requests fail with 403.
 
 Report suspected vulnerabilities through this fork's private reporting channel.
 See [SECURITY.md](SECURITY.md) for the report link and details to include.
+
+Dependency status as of 2026-10-20:
+
+- GitHub Dependabot reports 0 open dependency alerts for this repository.
+- `cargo audit` was not re-run in the 2026-10-20 documentation pass (no Rust toolchain in that
+  environment). The most recent recorded run, in PR #35 (2026-10-20), reported two residual
+  findings, neither dismissed:
+  - [RUSTSEC-2023-0071](https://rustsec.org/advisories/RUSTSEC-2023-0071.html) (Marvin timing
+    side channel in the `rsa` crate). Known upstream advisory with no fixed release as of
+    2026-10-20; the advisory itself states rsa 0.9.10 is still affected (last modified
+    2026-09-14). Mitigation in this fork: PR #30 (`bb214664b`) disabled the unused RSA feature of
+    `russh` in the embedded SSH server (it only accepts Ed25519 keys), so the active
+    all-target dependency tree contains no `rsa`; `rsa 0.9.10` remains in `Cargo.lock` only as
+    optional `sqlx-mysql` metadata, which a raw audit still counts.
+  - [RUSTSEC-2026-0381](https://rustsec.org/advisories/RUSTSEC-2026-0381.html) (distrusted
+    emSign roots in `webpki-roots`, patched in 1.0.10). PR #35 upgraded `webpki-roots` and
+    `webpki-root-certs` to 1.0.10. `Cargo.lock` still lists `webpki-roots 0.26.11`, a
+    compatibility wrapper pulled in by `sqlx-core` and `tokio-tungstenite` whose only dependency
+    is `webpki-roots 1.0.10`, so the bundled roots are the patched set; audit tools flag it by
+    version metadata.
 
 ## License
 
