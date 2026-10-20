@@ -2656,6 +2656,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df94ce210e5bc13cb6651479fa48d14f601d9858cfe0467f43ae157023b938d3"
 
 [[package]]
+name = "pbkdf2"
+version = "0.12.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8ed6a7761f76e3b9f92dfb0a60a6a6477c61024b775147ff0973a02653abaf2"
+dependencies = [
+ "digest 0.10.7",
+ "hmac 0.12.1",
+]
+
+[[package]]
 name = "pem"
 version = "3.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3140,6 +3150,7 @@ dependencies = [
  "opentelemetry-application-insights",
  "opentelemetry-http",
  "opentelemetry_sdk",
+ "pbkdf2",
  "rand 0.9.5",
  "relay-types",
  "reqwest 0.13.2",
@@ -3149,6 +3160,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "sqlx",
+ "stringprep",
  "subtle",
  "tar",
  "tempfile",

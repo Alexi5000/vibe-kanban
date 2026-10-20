@@ -20,6 +20,7 @@ pub mod oauth;
 pub mod oauth_accounts;
 pub mod organization_members;
 pub mod organizations;
+mod password;
 pub mod pending_uploads;
 pub mod project_notification_preferences;
 pub mod project_statuses;
@@ -33,7 +34,7 @@ pub mod users;
 pub mod workspaces;
 
 use sqlx::{
-    Executor, PgPool, Postgres, Transaction,
+    ConnectOptions, Connection, Executor, PgConnection, PgPool, Postgres, Transaction,
     migrate::MigrateError,
     postgres::{PgConnectOptions, PgPoolOptions},
 };
@@ -104,12 +105,20 @@ pub(crate) async fn ensure_electric_role_password(
         return Ok(());
     }
 
-    // PostgreSQL doesn't support parameter binding for ALTER ROLE PASSWORD
-    // We need to escape the password properly and embed it directly in the SQL
-    let escaped_password = password.replace("'", "''");
-    let sql = format!("ALTER ROLE electric_sync WITH PASSWORD '{escaped_password}'");
+    let configured_iterations: Option<String> =
+        sqlx::query_scalar("SELECT current_setting('scram_iterations', true)")
+            .fetch_one(pool)
+            .await?;
+    let iterations = password::scram_iterations(configured_iterations.as_deref())?;
+    let verifier = password::postgres_password_verifier(password, iterations)?;
+    let sql = format!("ALTER ROLE electric_sync WITH PASSWORD '{verifier}'");
 
-    sqlx::query(&sql).execute(pool).await?;
-
-    Ok(())
+    let options = pool
+        .connect_options()
+        .as_ref()
+        .clone()
+        .disable_statement_logging();
+    let mut connection = PgConnection::connect_with(&options).await?;
+    sqlx::query(&sql).execute(&mut connection).await?;
+    connection.close().await
 }
