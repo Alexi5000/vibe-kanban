@@ -128,6 +128,11 @@ origin URL(s) of your frontend, or API requests fail with 403.
 
 </details>
 
+## Security
+
+Report suspected vulnerabilities through this fork's private reporting channel.
+See [SECURITY.md](SECURITY.md) for the report link and details to include.
+
 ## License
 
 Apache-2.0, same as upstream. Original work © BloopAI and the vibe-kanban
