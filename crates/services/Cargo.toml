@@ -9,6 +9,7 @@ cloud = []
 qa-mode = ["executors/qa-mode"]
 
 [dependencies]
+dotenvy = "0.15"
 indicatif = "0.17"
 api-types = { path = "../api-types" }
 relay-types = { path = "../relay-types" }
