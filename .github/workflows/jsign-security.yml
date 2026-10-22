@@ -1,0 +1,21 @@
+name: Jsign input security
+on:
+  pull_request:
+    paths:
+      - '.github/actions/setup-jsign/**'
+      - '.github/workflows/jsign-security.yml'
+      - 'scripts/test_jsign_security.py'
+  push:
+    branches: [main]
+    paths:
+      - '.github/actions/setup-jsign/**'
+      - '.github/workflows/jsign-security.yml'
+      - 'scripts/test_jsign_security.py'
+permissions:
+  contents: read
+jobs:
+  input-security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - run: python3 scripts/test_jsign_security.py -v

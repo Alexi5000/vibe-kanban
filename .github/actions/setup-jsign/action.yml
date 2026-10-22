@@ -22,11 +22,27 @@ runs:
     - name: Set jar path
       id: path
       shell: bash
-      run: echo "jar=${{ runner.temp }}/jsign-${{ inputs.version }}.jar" >> $GITHUB_OUTPUT
+      env:
+        JSIGN_VERSION: ${{ inputs.version }}
+        JSIGN_SHA256: ${{ inputs.sha256 }}
+      run: |
+        if [[ ! "$JSIGN_VERSION" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
+          echo 'Invalid Jsign version' >&2
+          exit 1
+        fi
+        if [[ ! "$JSIGN_SHA256" =~ ^[[:xdigit:]]{64}$ ]]; then
+          echo 'Invalid Jsign SHA256' >&2
+          exit 1
+        fi
+        if [[ "$RUNNER_TEMP" == *$'\n'* || "$RUNNER_TEMP" == *$'\r'* ]]; then
+          echo 'Invalid runner temporary directory' >&2
+          exit 1
+        fi
+        printf 'jar=%s/jsign-%s.jar\n' "$RUNNER_TEMP" "$JSIGN_VERSION" >> "$GITHUB_OUTPUT"
 
     - name: Cache Jsign
       id: cache
-      uses: actions/cache@v5
+      uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25
       with:
         path: ${{ steps.path.outputs.jar }}
         key: jsign-${{ inputs.version }}-${{ inputs.sha256 }}
@@ -34,10 +50,24 @@ runs:
     - name: Download Jsign
       if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
+      env:
+        JSIGN_VERSION: ${{ inputs.version }}
+        JSIGN_JAR: ${{ steps.path.outputs.jar }}
       run: |
-        curl -sL "https://github.com/ebourg/jsign/releases/download/${{ inputs.version }}/jsign-${{ inputs.version }}.jar" \
-          -o "${{ steps.path.outputs.jar }}"
+        curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+          "https://github.com/ebourg/jsign/releases/download/$JSIGN_VERSION/jsign-$JSIGN_VERSION.jar" \
+          -o "$JSIGN_JAR"
 
     - name: Verify checksum
       shell: bash
-      run: echo "${{ inputs.sha256 }}  ${{ steps.path.outputs.jar }}" | sha256sum -c -
+      env:
+        JSIGN_SHA256: ${{ inputs.sha256 }}
+        JSIGN_JAR: ${{ steps.path.outputs.jar }}
+      run: |
+        actual=$(sha256sum < "$JSIGN_JAR")
+        actual=${actual%% *}
+        expected=$(printf '%s' "$JSIGN_SHA256" | tr 'A-F' 'a-f')
+        if [[ "$actual" != "$expected" ]]; then
+          echo 'Jsign checksum mismatch' >&2
+          exit 1
+        fi

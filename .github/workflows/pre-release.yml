@@ -45,7 +45,7 @@ jobs:
           git: https://github.com/killercup/cargo-edit
           rev: 96a3879fe3bafda6d0f943b642997fbf03e235cd # v0.13.9
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           ssh-key: ${{ secrets.DEPLOY_KEY }}
@@ -168,7 +168,7 @@ jobs:
       VITE_PUBLIC_REACT_VIRTUOSO_LICENSE_KEY: ${{ secrets.PUBLIC_REACT_VIRTUOSO_LICENSE_KEY }}
       VITE_VK_SHARED_API_BASE: ${{ secrets.VK_SHARED_API_BASE }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           ref: ${{ needs.bump-version.outputs.new_tag }}
 
@@ -205,7 +205,7 @@ jobs:
           ignore_missing: true
 
       - name: Upload frontend artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: frontend-dist
           path: packages/local-web/dist/
@@ -245,15 +245,15 @@ jobs:
       RUSTUP_HOME: ${{ github.workspace }}/.rustup
       XWIN_CACHE_DIR: ${{ github.workspace }}/.xwin-cache
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           ref: ${{ needs.bump-version.outputs.new_tag }}
 
       - name: Setup sccache
-        uses: BloopAI/sccache-action@main
+        uses: BloopAI/sccache-action@d3cae56d6da1f181f8e10797cd5400364fa44e21
 
       - name: Cache Rust toolchain
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25
         with:
           path: .rustup/toolchains
           key: rust-toolchain-${{ runner.os }}-${{ matrix.target }}-${{ env.RUST_TOOLCHAIN }}
@@ -277,7 +277,7 @@ jobs:
           fi
 
       - name: Cache Cargo registry
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25
         with:
           path: |
             .cargo/registry/cache
@@ -292,7 +292,7 @@ jobs:
 
       - name: Install Zig
         if: runner.os == 'Linux' && !contains(matrix.target, 'windows')
-        uses: BloopAI/setup-zig@main
+        uses: BloopAI/setup-zig@2f772d46b5bbec51fc8dd38a6818ae32b5a96e65
         with:
           version: 0.15.2
 
@@ -314,13 +314,13 @@ jobs:
 
       - name: Cache xwin downloads
         if: runner.os == 'Linux' && contains(matrix.target, 'windows')
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25
         with:
           path: ${{ github.workspace }}/.xwin-cache
           key: xwin-${{ runner.os }}-${{ matrix.target }}-cargo-xwin-${{ env.CARGO_XWIN_VERSION }}
 
       - name: Cache target
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25
         with:
           path: target
           key: target-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}-${{ matrix.target }}-${{ github.ref_name }}-${{ github.sha }}
@@ -336,7 +336,7 @@ jobs:
           rev: 82f42d3593923db6fe715b299036512d91ddb35e # v0.8.0
 
       - name: Download frontend artifact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         with:
           name: frontend-dist
           path: packages/local-web/dist/
@@ -430,7 +430,7 @@ jobs:
 
       - name: Sign main binary (macOS)
         if: runner.os == 'macOS'
-        uses: BloopAI/apple-code-sign-action@v1
+        uses: BloopAI/apple-code-sign-action@44d0985b7f4363198e80b6fea63ac3e9dd3e9957
         with:
           input_path: target/${{ matrix.target }}/release/server
           output_path: vibe-kanban
@@ -445,7 +445,7 @@ jobs:
 
       - name: Sign MCP binary (macOS)
         if: runner.os == 'macOS'
-        uses: BloopAI/apple-code-sign-action@v1
+        uses: BloopAI/apple-code-sign-action@44d0985b7f4363198e80b6fea63ac3e9dd3e9957
         with:
           input_path: target/${{ matrix.target }}/release/vibe-kanban-mcp
           output_path: vibe-kanban-mcp
@@ -460,7 +460,7 @@ jobs:
 
       - name: Sign Review binary (macOS)
         if: runner.os == 'macOS'
-        uses: BloopAI/apple-code-sign-action@v1
+        uses: BloopAI/apple-code-sign-action@44d0985b7f4363198e80b6fea63ac3e9dd3e9957
         with:
           input_path: target/${{ matrix.target }}/release/review
           output_path: vibe-kanban-review
@@ -475,7 +475,7 @@ jobs:
 
       - name: Notarize signed binaries (macOS)
         if: runner.os == 'macOS'
-        uses: BloopAI/apple-code-sign-action@main
+        uses: BloopAI/apple-code-sign-action@21e6f8327e57ea61732510d83f4cbe651c6933fc
         continue-on-error: true
         with:
           input_path: |
@@ -501,7 +501,7 @@ jobs:
           rm -rf private_keys/
 
       - name: Upload binary artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: backend-binary-${{ matrix.name }}
           path: dist/
@@ -553,18 +553,18 @@ jobs:
             mcp_binary: vibe-kanban-mcp
             review_binary: vibe-kanban-review
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           ref: ${{ needs.bump-version.outputs.new_tag }}
 
       - name: Download frontend artifact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         with:
           name: frontend-dist
           path: packages/local-web/dist/
 
       - name: Download backend binary artifact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         with:
           name: backend-binary-${{ matrix.name }}
           path: dist/
@@ -600,7 +600,7 @@ jobs:
           cp dist/vibe-kanban-review-${{ matrix.name }}* npx-cli/dist/${{ matrix.name }}/vibe-kanban-review.zip
 
       - name: Upload platform package artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: npx-platform-${{ matrix.name }}
           path: npx-cli/dist/
@@ -610,12 +610,12 @@ jobs:
     needs: [bump-version, package-npx-cli]
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           ref: ${{ needs.bump-version.outputs.new_tag }}
 
       - name: Download all platform packages
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         with:
           pattern: npx-platform-*
           path: binaries/
@@ -736,15 +736,15 @@ jobs:
       RUSTUP_HOME: ${{ github.workspace }}/.rustup
       XWIN_CACHE_DIR: ${{ github.workspace }}/.xwin-cache
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           ref: ${{ needs.bump-version.outputs.new_tag }}
 
       - name: Setup sccache
-        uses: BloopAI/sccache-action@main
+        uses: BloopAI/sccache-action@d3cae56d6da1f181f8e10797cd5400364fa44e21
 
       - name: Cache Rust toolchain
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25
         with:
           path: .rustup/toolchains
           key: rust-toolchain-${{ runner.os }}-${{ matrix.target }}-${{ env.RUST_TOOLCHAIN }}
@@ -756,7 +756,7 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Cache Cargo registry
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25
         with:
           path: |
             .cargo/registry/cache
@@ -770,7 +770,7 @@ jobs:
             cargo-tauri-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}-${{ matrix.target }}-
 
       - name: Cache target
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25
         with:
           path: target
           key: tauri-target-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}-${{ matrix.target }}-${{ github.ref_name }}-${{ github.sha }}
@@ -839,7 +839,7 @@ jobs:
 
       - name: Cache xwin downloads
         if: runner.os == 'Linux' && contains(matrix.target, 'windows')
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25
         with:
           path: ${{ github.workspace }}/.xwin-cache
           key: xwin-${{ runner.os }}-${{ matrix.target }}-cargo-xwin-${{ env.CARGO_XWIN_VERSION }}
@@ -853,7 +853,7 @@ jobs:
           tool: tauri-cli@2
 
       - name: Download frontend artifact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         with:
           name: frontend-dist
           path: packages/local-web/dist/
@@ -998,7 +998,7 @@ jobs:
         run: rm -rf ~/.private_keys
 
       - name: Upload Tauri artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: tauri-artifacts-${{ matrix.platform }}
           path: tauri-artifacts/
@@ -1014,7 +1014,7 @@ jobs:
     needs: [bump-version, build-tauri]
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           ref: ${{ needs.bump-version.outputs.new_tag }}
 
@@ -1022,7 +1022,7 @@ jobs:
         uses: ./.github/actions/setup-node
 
       - name: Download all Tauri artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         with:
           pattern: tauri-artifacts-*
           path: tauri-artifacts/
@@ -1101,18 +1101,18 @@ jobs:
     needs: [bump-version, build-frontend, upload-to-r2, upload-tauri-update]
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           ref: ${{ needs.bump-version.outputs.new_tag }}
 
       - name: Download frontend artifact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         with:
           name: frontend-dist
           path: packages/local-web/dist/
 
       - name: Download Tauri artifacts for release
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         with:
           pattern: tauri-artifacts-*
           path: tauri-release/
