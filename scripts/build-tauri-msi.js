@@ -16,7 +16,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 
 // Parse CLI args
 const args = process.argv.slice(2);
@@ -128,11 +128,11 @@ console.log(`  Binary:  ${mainBinaryPath}`);
 console.log(`  Output:  ${msiOutput}`);
 
 // Run wixl
-const cmd = `wixl -v --arch ${wixArch} --ext ui "${processedWxs}" -o "${msiOutput}"`;
-console.log(`\nRunning: ${cmd}`);
+const wixArgs = ['-v', '--arch', wixArch, '--ext', 'ui', processedWxs, '-o', msiOutput];
+console.log(`\nRunning wixl: ${JSON.stringify(wixArgs)}`);
 
 try {
-  execSync(cmd, { stdio: 'inherit', cwd: projectRoot });
+  execFileSync('wixl', wixArgs, { stdio: 'inherit', cwd: projectRoot });
   console.log(`\nMSI built successfully: ${msiOutput}`);
 
   const stats = fs.statSync(msiOutput);
