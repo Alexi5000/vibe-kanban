@@ -179,7 +179,15 @@ Architecture decisions are recorded in [docs/adr/](docs/adr/).
 | `VK_TUNNEL` | Runtime | Not set | Enable relay tunnel mode (requires relay API base URL) |
 
 Behind a reverse proxy or custom domain, set `VK_ALLOWED_ORIGINS` to the full
-origin URL(s) of your frontend, or API requests fail with 403.
+origin URL(s) of your frontend, or API requests fail with 403. API Host headers
+must identify localhost/a loopback address, the explicitly configured HOST
+interface, or a host and port from VK_ALLOWED_ORIGINS. Binding HOST=0.0.0.0
+accepts that literal authority but does not trust arbitrary DNS names or LAN
+addresses; list those origins explicitly. Requests without Origin still need a
+trusted Host. Relay forwarding rewrites Host to the actual local socket address
+before the existing signed-request authorization runs. This rejects unconfigured
+same-origin DNS hostnames at the API boundary; it is not a claim that an actual
+browser DNS-rebinding attack was demonstrated.
 
 </details>
 

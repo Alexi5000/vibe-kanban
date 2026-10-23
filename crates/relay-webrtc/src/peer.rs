@@ -459,3 +459,85 @@ async fn run_ws_bridge(
         .await
         .map_err(WebRtcError::from)
 }
+
+#[cfg(test)]
+mod tests {
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+    };
+
+    use super::*;
+
+    #[tokio::test]
+    async fn http_proxy_synthesizes_local_host_after_removing_untrusted_host() {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let backend = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut bytes = Vec::new();
+                while !bytes.ends_with(b"\r\n\r\n") {
+                    bytes.push(socket.read_u8().await.unwrap());
+                }
+                let request = String::from_utf8(bytes).unwrap().to_ascii_lowercase();
+                assert!(request.contains(&format!("\r\nhost: {addr}\r\n")));
+                assert!(!request.contains("attacker.example"));
+                socket
+                    .write_all(
+                        b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
+                    )
+                    .await
+                    .unwrap();
+            });
+            let response = proxy_request(
+                &reqwest::Client::new(),
+                addr,
+                DataChannelRequest {
+                    id: Uuid::new_v4(),
+                    method: "GET".into(),
+                    path: "/api/health?test=1".into(),
+                    headers: HashMap::from([("Host".into(), vec!["attacker.example".into()])]),
+                    body_b64: None,
+                },
+            )
+            .await;
+            assert_eq!(response.status, 200);
+            backend.await.unwrap();
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn websocket_proxy_synthesizes_local_host() {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let backend = tokio::spawn(async move {
+                let (socket, _) = listener.accept().await.unwrap();
+                tokio_tungstenite::accept_hdr_async(
+                    socket,
+                    move |request: &tokio_tungstenite::tungstenite::handshake::server::Request,
+                          response| {
+                        assert_eq!(
+                            request.headers().get("host").unwrap(),
+                            addr.to_string().as_str()
+                        );
+                        assert_eq!(request.uri().path(), "/api/events");
+                        Ok(response)
+                    },
+                )
+                .await
+                .unwrap();
+            });
+            let (socket, _) = connect_upstream_ws(format!("ws://{addr}/api/events"), None)
+                .await
+                .unwrap();
+            drop(socket);
+            backend.await.unwrap();
+        })
+        .await
+        .unwrap();
+    }
+}
