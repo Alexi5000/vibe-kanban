@@ -2,6 +2,8 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum WebRtcError {
+    #[error("WebRTC session was revoked")]
+    SessionRevoked,
     #[error("Invalid local request path")]
     InvalidLocalPath,
     #[error("WebRTC operation failed: {0}")]

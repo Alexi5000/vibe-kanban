@@ -90,6 +90,7 @@ pub async fn spawn_relay(deployment: &DeploymentImpl) {
 
     if let Some(host) = deployment.webrtc_host() {
         host.stop_all().await;
+        host.start().await;
     }
     let cancel_token = deployment.relay_control().reset().await;
 

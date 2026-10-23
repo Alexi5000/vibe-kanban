@@ -495,6 +495,9 @@ impl IntoResponse for ApiError {
             ApiError::Config(_) => ErrorInfo::internal("ConfigError"),
             ApiError::Io(_) => ErrorInfo::internal("IoError"),
             ApiError::WebRtc(err) => match err {
+                WebRtcError::SessionRevoked => {
+                    ErrorInfo::with_status(StatusCode::UNAUTHORIZED, "WebRtcError", err.to_string())
+                }
                 WebRtcError::SessionNotFound { .. } => {
                     ErrorInfo::not_found("WebRtcError", err.to_string())
                 }

@@ -44,7 +44,6 @@ impl WebRtcHost {
         let peers = {
             let mut inner = self.inner.lock().await;
             inner.shutdown.cancel();
-            inner.shutdown = inner.lifetime.child_token();
             inner
                 .peers
                 .drain()
@@ -55,6 +54,11 @@ impl WebRtcHost {
             peer.shutdown.cancel();
             let _ = peer.peer_connection.close().await;
         }
+    }
+
+    pub async fn start(&self) {
+        let mut inner = self.inner.lock().await;
+        inner.shutdown = inner.lifetime.child_token();
     }
 
     pub fn tunnel_provenance(&self) -> String {
@@ -74,13 +78,22 @@ impl WebRtcHost {
         offer: SdpOffer,
         authority: PeerAuthority,
     ) -> Result<SdpAnswer, WebRtcError> {
+        let generation = self.inner.lock().await.shutdown.clone();
+        if generation.is_cancelled() {
+            return Err(WebRtcError::SessionRevoked);
+        }
         let (answer_sdp, peer_connection) = peer::accept_offer(&offer.sdp).await?;
         let session_id = format!("{}:{}", authority.binding(), offer.session_id);
 
         let (old_peer, peer_shutdown, local_backend_addr) = {
             let mut inner = self.inner.lock().await;
+            if generation.is_cancelled() {
+                drop(inner);
+                let _ = peer_connection.close().await;
+                return Err(WebRtcError::SessionRevoked);
+            }
             let old_peer = inner.peers.remove(&session_id);
-            let peer_shutdown = inner.shutdown.child_token();
+            let peer_shutdown = generation.child_token();
             let local_backend_addr = inner.local_backend_addr;
 
             let handle = PeerHandle {
@@ -174,6 +187,9 @@ mod tests {
         let host = WebRtcHost::new("127.0.0.1:1".parse().unwrap(), CancellationToken::new());
         let old_peer = host.inner.lock().await.shutdown.child_token();
         host.stop_all().await;
+        assert!(old_peer.is_cancelled());
+        assert!(host.inner.lock().await.shutdown.is_cancelled());
+        host.start().await;
         assert!(old_peer.is_cancelled());
         let new_peer = host.inner.lock().await.shutdown.child_token();
         assert!(!new_peer.is_cancelled());
