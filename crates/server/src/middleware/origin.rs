@@ -24,6 +24,14 @@ impl OriginKey {
             "https" => true,
             _ => return None,
         };
+        if !url.username().is_empty()
+            || url.password().is_some()
+            || url.query().is_some()
+            || url.fragment().is_some()
+            || url.path() != "/"
+        {
+            return None;
+        }
         let host = normalize_host(url.host_str()?);
         let port = url.port_or_known_default()?;
         Some(Self { https, host, port })
@@ -31,6 +39,9 @@ impl OriginKey {
 
     fn from_host_header(host: &str, https: bool) -> Option<Self> {
         let authority: axum::http::uri::Authority = host.parse().ok()?;
+        if authority.port().is_some() && authority.port_u16().is_none() {
+            return None;
+        }
         let host = normalize_host(authority.host());
         let port = authority.port_u16().unwrap_or_else(|| default_port(https));
         Some(Self { https, host, port })
@@ -39,6 +50,23 @@ impl OriginKey {
 
 #[allow(clippy::result_large_err)]
 pub fn validate_origin<B>(req: &mut Request<B>) -> Result<(), Response> {
+    validate_origin_with_policy(req, allowed_origins(), &configured_host())
+}
+
+#[allow(clippy::result_large_err)]
+fn validate_origin_with_policy<B>(
+    req: &mut Request<B>,
+    allowed: &[OriginKey],
+    bind_host: &str,
+) -> Result<(), Response> {
+    let Some(host) = get_host_header(req) else {
+        return Err(forbidden());
+    };
+    if req.headers().get_all(header::HOST).iter().count() != 1
+        || !trusted_host(host, allowed, bind_host)
+    {
+        return Err(forbidden());
+    }
     // Relay-proxied requests are authenticated through the relay's own session
     // system, so origin validation is not applicable.
     if is_relay_request(req) {
@@ -53,7 +81,7 @@ pub fn validate_origin<B>(req: &mut Request<B>) -> Result<(), Response> {
         return Err(forbidden());
     }
 
-    let host = get_host_header(req);
+    let host = Some(host);
 
     // quick short-circuit same-origin check
     if host.is_some_and(|host| origin_matches_host(origin, host)) {
@@ -64,10 +92,7 @@ pub fn validate_origin<B>(req: &mut Request<B>) -> Result<(), Response> {
         return Err(forbidden());
     };
 
-    if allowed_origins()
-        .iter()
-        .any(|allowed| allowed == &origin_key)
-    {
+    if allowed.iter().any(|allowed| allowed == &origin_key) {
         return Ok(());
     }
 
@@ -79,6 +104,23 @@ pub fn validate_origin<B>(req: &mut Request<B>) -> Result<(), Response> {
     }
 
     Err(forbidden())
+}
+
+fn trusted_host(host: &str, allowed: &[OriginKey], bind_host: &str) -> bool {
+    let Some(http) = OriginKey::from_host_header(host, false) else {
+        return false;
+    };
+    if http.host == "localhost" || http.host == normalize_host(bind_host) {
+        return true;
+    }
+    let https = OriginKey::from_host_header(host, true);
+    allowed
+        .iter()
+        .any(|origin| origin == &http || Some(origin) == https.as_ref())
+}
+
+fn configured_host() -> String {
+    std::env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string())
 }
 
 fn get_origin_header<B>(req: &Request<B>) -> Option<&str> {
@@ -173,8 +215,8 @@ mod tests {
     }
 
     #[test]
-    fn no_origin_header_allows_request() {
-        let mut req = make_request(None, Some("example.com"));
+    fn no_origin_header_allows_trusted_local_request() {
+        let mut req = make_request(None, Some("localhost:3000"));
         assert!(validate_origin(&mut req).is_ok());
     }
 
@@ -197,7 +239,11 @@ mod tests {
         ];
         for (origin, host) in cases {
             let mut req = make_request(Some(origin), Some(host));
-            assert!(validate_origin(&mut req).is_ok(), "{origin} vs {host}");
+            let allowed = vec![OriginKey::from_origin(origin).unwrap()];
+            assert!(
+                validate_origin_with_policy(&mut req, &allowed, "127.0.0.1").is_ok(),
+                "{origin} vs {host}"
+            );
         }
     }
 
@@ -254,7 +300,81 @@ mod tests {
         );
 
         // Explicit default port matches implicit
-        let mut req = make_request(Some("http://example.com:80"), Some("example.com"));
+        let mut req = make_request(Some("http://localhost:80"), Some("localhost"));
         assert!(validate_origin(&mut req).is_ok());
+    }
+    #[test]
+    fn arbitrary_same_origin_hostname_is_not_authority() {
+        for origin in [None, Some("http://attacker.example:3000")] {
+            let mut req = make_request(origin, Some("attacker.example:3000"));
+            assert!(is_forbidden(validate_origin_with_policy(
+                &mut req,
+                &[],
+                "127.0.0.1"
+            )));
+            req.headers_mut().insert(RELAY_HEADER, "1".parse().unwrap());
+            assert!(is_forbidden(validate_origin_with_policy(
+                &mut req,
+                &[],
+                "127.0.0.1"
+            )));
+        }
+    }
+
+    #[test]
+    fn configured_proxy_origins_and_bound_interfaces_remain_supported() {
+        let allowed = vec![OriginKey::from_origin("https://preview.example:8443").unwrap()];
+        for (origin, host, bind) in [
+            (
+                Some("https://preview.example:8443"),
+                "preview.example:8443",
+                "127.0.0.1",
+            ),
+            (None, "preview.example:8443", "127.0.0.1"),
+            (
+                Some("https://preview.example:8443"),
+                "localhost:3000",
+                "127.0.0.1",
+            ),
+            (None, "192.168.1.10:3000", "192.168.1.10"),
+            (None, "0.0.0.0:3000", "0.0.0.0"),
+        ] {
+            let mut req = make_request(origin, Some(host));
+            assert!(validate_origin_with_policy(&mut req, &allowed, bind).is_ok());
+        }
+        for host in [
+            "preview.example:8444",
+            "attacker.example:8443",
+            "192.168.1.10:3000",
+        ] {
+            let mut req = make_request(None, Some(host));
+            assert!(is_forbidden(validate_origin_with_policy(
+                &mut req, &allowed, "0.0.0.0"
+            )));
+        }
+    }
+
+    #[test]
+    fn absent_or_malformed_host_is_rejected() {
+        for host in [
+            None,
+            Some("localhost:65536"),
+            Some("localhost:bad"),
+            Some("evil@localhost"),
+        ] {
+            let mut req = make_request(None, host);
+            assert!(is_forbidden(validate_origin_with_policy(
+                &mut req,
+                &[],
+                "127.0.0.1"
+            )));
+        }
+    }
+
+    #[test]
+    fn local_relay_requests_keep_the_signed_authentication_path() {
+        let mut req = make_request(Some("https://relay.example"), Some("127.0.0.1:3000"));
+        req.headers_mut().insert(RELAY_HEADER, "1".parse().unwrap());
+        assert!(validate_origin_with_policy(&mut req, &[], "127.0.0.1").is_ok());
     }
 }

@@ -99,6 +99,12 @@ async fn proxy_to_local(
         .headers_mut()
         .insert("x-vk-relayed", http::HeaderValue::from_static("1"));
 
+    request.headers_mut().insert(
+        http::header::HOST,
+        http::HeaderValue::from_str(&local_addr.to_string())
+            .expect("socket address is a valid authority"),
+    );
+
     // TODO: fix dev servers
     let local_stream = match TcpStream::connect(local_addr).await {
         Ok(stream) => stream,
@@ -166,4 +172,74 @@ fn simple_response(status: StatusCode, body: &'static str) -> Response<Body> {
         .status(status)
         .body(Body::from(body))
         .unwrap_or_else(|_| Response::new(Body::from(body)))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn forwarding_uses_local_host_and_preserves_signed_path_and_headers() {
+        let backend = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let local_addr = backend.local_addr().unwrap();
+        let backend_task = tokio::spawn(async move {
+            let (stream, _) = backend.accept().await.unwrap();
+            server_http1::Builder::new()
+                .serve_connection(
+                    TokioIo::new(stream),
+                    service_fn(move |request: Request<Incoming>| async move {
+                        assert_eq!(
+                            request.headers()[http::header::HOST],
+                            local_addr.to_string()
+                        );
+                        assert_eq!(request.headers()["x-vk-relayed"], "1");
+                        assert_eq!(request.headers()["x-vk-sig-signature"], "dummy-signature");
+                        assert_eq!(
+                            request.uri().path_and_query().unwrap().as_str(),
+                            "/api/health?test=1"
+                        );
+                        Ok::<_, Infallible>(simple_response(StatusCode::OK, "dummy response"))
+                    }),
+                )
+                .await
+                .unwrap();
+        });
+        let inbound = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let inbound_addr = inbound.local_addr().unwrap();
+        let proxy_task = tokio::spawn(async move {
+            let (stream, _) = inbound.accept().await.unwrap();
+            server_http1::Builder::new()
+                .serve_connection(
+                    TokioIo::new(stream),
+                    service_fn(move |request| proxy_to_local(request, local_addr)),
+                )
+                .await
+                .unwrap();
+        });
+        let stream = TcpStream::connect(inbound_addr).await.unwrap();
+        let (mut sender, connection) = client_http1::Builder::new()
+            .handshake(TokioIo::new(stream))
+            .await
+            .unwrap();
+        let connection_task = tokio::spawn(connection);
+        let request = Request::builder()
+            .uri("/api/health?test=1")
+            .header(http::header::HOST, "relay.example")
+            .header("x-vk-relayed", "attacker-controlled")
+            .header("x-vk-sig-signature", "dummy-signature")
+            .body(Body::empty())
+            .unwrap();
+        let response = tokio::time::timeout(Duration::from_secs(5), sender.send_request(request))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        drop(response);
+        drop(sender);
+        connection_task.abort();
+        proxy_task.abort();
+        backend_task.abort();
+    }
 }
