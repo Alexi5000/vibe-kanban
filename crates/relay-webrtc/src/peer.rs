@@ -222,9 +222,12 @@ pub async fn run_peer(
                             let tx = dc_send_tx.clone();
                             let shutdown = dispatch_shutdown.clone();
                             tokio::spawn(async move {
-                                let response = tokio::select! {
-                                    _ = shutdown.cancelled() => return,
-                                    response = proxy_request(&client, addr, request) => response,
+                                let Some(response) = proxy_request_until_cancelled(
+                                    &client, addr, request, &shutdown,
+                                )
+                                .await
+                                else {
+                                    return;
                                 };
                                 tracing::trace!(
                                     id = %response.id,
@@ -323,6 +326,19 @@ pub async fn run_peer(
 // ---------------------------------------------------------------------------
 // HTTP proxy
 // ---------------------------------------------------------------------------
+
+async fn proxy_request_until_cancelled(
+    client: &reqwest::Client,
+    addr: SocketAddr,
+    request: DataChannelRequest,
+    shutdown: &CancellationToken,
+) -> Option<DataChannelResponse> {
+    tokio::select! {
+        biased;
+        _ = shutdown.cancelled() => None,
+        response = proxy_request(client, addr, request) => Some(response),
+    }
+}
 
 async fn proxy_request(
     http_client: &reqwest::Client,
@@ -453,6 +469,7 @@ async fn handle_ws_open(
 
     tokio::spawn(async move {
         let bridge_result = tokio::select! {
+            biased;
             _ = shutdown.cancelled() => Ok(()),
             result = run_ws_bridge(ws_open, addr, frame_rx, &dc_tx) => result,
         };
@@ -610,6 +627,84 @@ mod tests {
                 .unwrap();
             drop(socket);
             backend.await.unwrap();
+        })
+        .await
+        .unwrap();
+    }
+    #[tokio::test]
+    async fn cancelled_peer_aborts_inflight_http() {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let shutdown = CancellationToken::new();
+            let cancel = shutdown.clone();
+            let (accepted_tx, accepted_rx) = tokio::sync::oneshot::channel();
+            let backend = tokio::spawn(async move {
+                let (socket, _) = listener.accept().await.unwrap();
+                accepted_tx.send(()).unwrap();
+                std::future::pending::<()>().await;
+                drop(socket);
+            });
+            let request = DataChannelRequest {
+                id: Uuid::new_v4(),
+                method: "GET".into(),
+                path: "/api/health".into(),
+                headers: Default::default(),
+                body_b64: None,
+            };
+            let client = reqwest::Client::new();
+            let work = tokio::spawn(async move {
+                proxy_request_until_cancelled(&client, addr, request, &shutdown).await
+            });
+            accepted_rx.await.unwrap();
+            cancel.cancel();
+            assert!(work.await.unwrap().is_none());
+            backend.abort();
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn cancelled_peer_closes_active_websocket_bridge() {
+        use futures_util::StreamExt;
+        tokio::time::timeout(Duration::from_secs(5), async {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let backend = tokio::spawn(async move {
+                let (socket, _) = listener.accept().await.unwrap();
+                let mut ws = tokio_tungstenite::accept_async(socket).await.unwrap();
+                let closed = ws.next().await;
+                assert!(
+                    closed.is_none()
+                        || closed
+                            .is_some_and(|result| result.is_err()
+                                || result.is_ok_and(|frame| frame.is_close()))
+                );
+            });
+            let shutdown = CancellationToken::new();
+            let (dc_tx, mut dc_rx) = mpsc::channel(8);
+            let connections = Arc::new(Mutex::new(HashMap::new()));
+            handle_ws_open(
+                WsOpen {
+                    conn_id: Uuid::new_v4(),
+                    path: "/api/events".into(),
+                    protocols: None,
+                },
+                addr,
+                &dc_tx,
+                &connections,
+                shutdown.clone(),
+            )
+            .await;
+            let opened: DataChannelMessage =
+                serde_json::from_slice(&dc_rx.recv().await.unwrap()).unwrap();
+            assert!(matches!(opened, DataChannelMessage::WsOpened(_)));
+            shutdown.cancel();
+            backend.await.unwrap();
+            while !connections.lock().await.is_empty() {
+                tokio::task::yield_now().await;
+            }
         })
         .await
         .unwrap();

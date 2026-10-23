@@ -138,8 +138,7 @@ async fn do_relay_proxy_for_host(
     browser_session_id: Uuid,
     mut request: Request,
 ) -> Response {
-    request.headers_mut().insert("x-vk-relay-host", host_id.to_string().parse().unwrap());
-    request.headers_mut().insert("x-vk-relay-browser-session", browser_session_id.to_string().parse().unwrap());
+    bind_relay_context(&mut request, host_id, browser_session_id);
     let relay = match state.relay_registry.get(&host_id).await {
         Some(relay) => relay,
         None => return (StatusCode::NOT_FOUND, "No active relay").into_response(),
@@ -169,5 +168,30 @@ pub(super) async fn authorize_peer(
     match validate_browser_session_for_host(&state, browser_session_id, host_id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(response) => response,
+    }
+}
+
+fn bind_relay_context(request: &mut Request, host_id: Uuid, browser_session_id: Uuid) {
+    request.headers_mut().insert("x-vk-relay-host", host_id.to_string().parse().unwrap());
+    request.headers_mut().insert("x-vk-relay-browser-session", browser_session_id.to_string().parse().unwrap());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn relay_overwrites_all_client_supplied_session_context() {
+        let mut request = Request::builder()
+            .header("x-vk-relay-host", Uuid::new_v4().to_string())
+            .header("x-vk-relay-browser-session", Uuid::new_v4().to_string())
+            .header("x-vk-relay-browser-session", Uuid::new_v4().to_string())
+            .body(axum::body::Body::empty()).unwrap();
+        let host = Uuid::new_v4();
+        let session = Uuid::new_v4();
+        bind_relay_context(&mut request, host, session);
+        assert_eq!(request.headers()["x-vk-relay-host"], host.to_string());
+        assert_eq!(request.headers()["x-vk-relay-browser-session"], session.to_string());
+        assert_eq!(request.headers().get_all("x-vk-relay-browser-session").iter().count(), 1);
     }
 }
