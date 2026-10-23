@@ -72,8 +72,28 @@ fn peer_authority(
     signature: Option<Extension<RelayRequestSignatureContext>>,
     headers: &HeaderMap,
 ) -> Option<PeerAuthority> {
-    let _signature = signature?;
     let host_runtime = deployment.webrtc_host()?;
+    let (host, session) = trusted_peer_context(&host_runtime, signature, headers)?;
+    let base = deployment.remote_info().get_relay_api_base()?;
+    let remote = deployment.remote_client().ok()?;
+    PeerAuthority::new(
+        &base,
+        host,
+        session,
+        deployment.user_id(),
+        Arc::new(move || {
+            let remote = remote.clone();
+            Box::pin(async move { remote.access_token().await.ok() })
+        }),
+    )
+}
+
+fn trusted_peer_context(
+    host_runtime: &relay_webrtc::WebRtcHost,
+    signature: Option<Extension<RelayRequestSignatureContext>>,
+    headers: &HeaderMap,
+) -> Option<(Uuid, Uuid)> {
+    let _signature = signature?;
     if headers.get_all("x-vk-tunnel-provenance").iter().count() != 1
         || !headers
             .get("x-vk-tunnel-provenance")
@@ -93,16 +113,55 @@ fn peer_authority(
     };
     let host = parse("x-vk-relay-host")?;
     let session = parse("x-vk-relay-browser-session")?;
-    let base = deployment.remote_info().get_relay_api_base()?;
-    let remote = deployment.remote_client().ok()?;
-    PeerAuthority::new(
-        &base,
-        host,
-        session,
-        deployment.user_id(),
-        Arc::new(move || {
-            let remote = remote.clone();
-            Box::pin(async move { remote.access_token().await.ok() })
-        }),
-    )
+    Some((host, session))
+}
+
+#[cfg(test)]
+mod tests {
+    use tokio_util::sync::CancellationToken;
+
+    use super::*;
+
+    fn signed_context() -> Option<Extension<RelayRequestSignatureContext>> {
+        Some(Extension(RelayRequestSignatureContext {
+            signing_session_id: Uuid::new_v4(),
+            timestamp: 0,
+            nonce: Uuid::new_v4(),
+            signature_b64: "already-verified-dummy".into(),
+        }))
+    }
+
+    #[test]
+    fn paired_signer_cannot_substitute_browser_session_without_tunnel_provenance() {
+        let runtime =
+            relay_webrtc::WebRtcHost::new("127.0.0.1:1".parse().unwrap(), CancellationToken::new());
+        let host = Uuid::new_v4();
+        let victim = Uuid::new_v4();
+        let mut headers = HeaderMap::new();
+        headers.insert("x-vk-relay-host", host.to_string().parse().unwrap());
+        headers.insert(
+            "x-vk-relay-browser-session",
+            victim.to_string().parse().unwrap(),
+        );
+        assert!(trusted_peer_context(&runtime, signed_context(), &headers).is_none());
+        headers.insert(
+            "x-vk-tunnel-provenance",
+            Uuid::new_v4().to_string().parse().unwrap(),
+        );
+        assert!(trusted_peer_context(&runtime, signed_context(), &headers).is_none());
+        headers.insert(
+            "x-vk-tunnel-provenance",
+            runtime.tunnel_provenance().parse().unwrap(),
+        );
+        assert!(trusted_peer_context(&runtime, None, &headers).is_none());
+        assert_eq!(
+            trusted_peer_context(&runtime, signed_context(), &headers),
+            Some((host, victim))
+        );
+        headers.append(
+            "x-vk-relay-browser-session",
+            Uuid::new_v4().to_string().parse().unwrap(),
+        );
+        assert!(trusted_peer_context(&runtime, signed_context(), &headers).is_none());
+    }
 }
