@@ -259,12 +259,11 @@ fn set_tunnel_provenance<B>(request: &mut Request<B>, token: &str) {
     if matches!(
         request.uri().path(),
         "/api/webrtc/offer" | "/api/webrtc/candidate"
-    ) {
-        if let Ok(value) = http::HeaderValue::from_str(token) {
-            request
-                .headers_mut()
-                .insert("x-vk-tunnel-provenance", value);
-        }
+    ) && let Ok(value) = http::HeaderValue::from_str(token)
+    {
+        request
+            .headers_mut()
+            .insert("x-vk-tunnel-provenance", value);
     }
 }
 
