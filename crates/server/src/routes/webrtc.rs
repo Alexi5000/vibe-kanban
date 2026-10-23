@@ -35,7 +35,8 @@ async fn handle_offer(
         ));
     };
 
-    let authority = peer_authority(&deployment, signature, &headers)?;
+    let authority =
+        peer_authority(&deployment, signature, &headers).ok_or(ApiError::Unauthorized)?;
     if !authority.authorized().await {
         return Err(ApiError::Unauthorized);
     }
@@ -55,7 +56,8 @@ async fn handle_candidate(
         ));
     };
 
-    let authority = peer_authority(&deployment, signature, &headers)?;
+    let authority =
+        peer_authority(&deployment, signature, &headers).ok_or(ApiError::Unauthorized)?;
     if !authority.authorized().await {
         return Err(ApiError::Unauthorized);
     }
@@ -69,36 +71,30 @@ fn peer_authority(
     deployment: &DeploymentImpl,
     signature: Option<Extension<RelayRequestSignatureContext>>,
     headers: &HeaderMap,
-) -> Result<PeerAuthority, ApiError> {
-    signature.ok_or(ApiError::Unauthorized)?;
-    let host_runtime = deployment.webrtc_host().ok_or(ApiError::Unauthorized)?;
+) -> Option<PeerAuthority> {
+    let _signature = signature?;
+    let host_runtime = deployment.webrtc_host()?;
     if headers.get_all("x-vk-tunnel-provenance").iter().count() != 1
         || !headers
             .get("x-vk-tunnel-provenance")
             .and_then(|value| value.to_str().ok())
             .is_some_and(|value| host_runtime.accepts_tunnel_provenance(value))
     {
-        return Err(ApiError::Unauthorized);
+        return None;
     }
-    let parse = |name: &str| -> Result<Uuid, ApiError> {
+    let parse = |name: &str| -> Option<Uuid> {
         if headers.get_all(name).iter().count() != 1 {
-            return Err(ApiError::Unauthorized);
+            return None;
         }
         headers
             .get(name)
             .and_then(|v| v.to_str().ok())
             .and_then(|v| Uuid::parse_str(v).ok())
-            .ok_or(ApiError::Unauthorized)
     };
     let host = parse("x-vk-relay-host")?;
     let session = parse("x-vk-relay-browser-session")?;
-    let base = deployment
-        .remote_info()
-        .get_relay_api_base()
-        .ok_or(ApiError::Unauthorized)?;
-    let remote = deployment
-        .remote_client()
-        .map_err(|_| ApiError::Unauthorized)?;
+    let base = deployment.remote_info().get_relay_api_base()?;
+    let remote = deployment.remote_client().ok()?;
     PeerAuthority::new(
         &base,
         host,
@@ -109,5 +105,4 @@ fn peer_authority(
             Box::pin(async move { remote.access_token().await.ok() })
         }),
     )
-    .ok_or(ApiError::Unauthorized)
 }

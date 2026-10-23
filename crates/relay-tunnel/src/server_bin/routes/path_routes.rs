@@ -1,8 +1,8 @@
 //! Relay path handlers: auth code exchange and proxy.
 
 use axum::{
-    extract::{Path, Query, Request, State},
     Extension,
+    extract::{Path, Query, Request, State},
     http::StatusCode,
     response::{IntoResponse, Response},
 };
@@ -10,7 +10,7 @@ use relay_tunnel_core::server::proxy_request_over_control;
 use uuid::Uuid;
 
 use super::super::{
-    auth::{request_context_from_auth_session_id, RequestContext},
+    auth::{RequestContext, request_context_from_auth_session_id},
     db::{
         hosts::HostRepository, identity_errors::IdentityError,
         relay_browser_sessions::RelayBrowserSessionRepository,
@@ -149,7 +149,9 @@ async fn do_relay_proxy_for_host(
 }
 
 #[derive(serde::Deserialize)]
-pub(super) struct AuthorityQuery { machine_id: String }
+pub(super) struct AuthorityQuery {
+    machine_id: String,
+}
 
 pub(super) async fn authorize_peer(
     State(state): State<RelayAppState>,
@@ -161,7 +163,7 @@ pub(super) async fn authorize_peer(
         "SELECT EXISTS (SELECT 1 FROM hosts WHERE id = $1 AND owner_user_id = $2 AND machine_id = $3)"
     ).bind(host_id).bind(ctx.user.id).bind(query.machine_id).fetch_one(&state.pool).await;
     match owns_host {
-        Ok(true) => {},
+        Ok(true) => {}
         Ok(false) => return StatusCode::FORBIDDEN.into_response(),
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
@@ -172,8 +174,13 @@ pub(super) async fn authorize_peer(
 }
 
 fn bind_relay_context(request: &mut Request, host_id: Uuid, browser_session_id: Uuid) {
-    request.headers_mut().insert("x-vk-relay-host", host_id.to_string().parse().unwrap());
-    request.headers_mut().insert("x-vk-relay-browser-session", browser_session_id.to_string().parse().unwrap());
+    request
+        .headers_mut()
+        .insert("x-vk-relay-host", host_id.to_string().parse().unwrap());
+    request.headers_mut().insert(
+        "x-vk-relay-browser-session",
+        browser_session_id.to_string().parse().unwrap(),
+    );
 }
 
 #[cfg(test)]
@@ -186,12 +193,23 @@ mod tests {
             .header("x-vk-relay-host", Uuid::new_v4().to_string())
             .header("x-vk-relay-browser-session", Uuid::new_v4().to_string())
             .header("x-vk-relay-browser-session", Uuid::new_v4().to_string())
-            .body(axum::body::Body::empty()).unwrap();
+            .body(axum::body::Body::empty())
+            .unwrap();
         let host = Uuid::new_v4();
         let session = Uuid::new_v4();
         bind_relay_context(&mut request, host, session);
         assert_eq!(request.headers()["x-vk-relay-host"], host.to_string());
-        assert_eq!(request.headers()["x-vk-relay-browser-session"], session.to_string());
-        assert_eq!(request.headers().get_all("x-vk-relay-browser-session").iter().count(), 1);
+        assert_eq!(
+            request.headers()["x-vk-relay-browser-session"],
+            session.to_string()
+        );
+        assert_eq!(
+            request
+                .headers()
+                .get_all("x-vk-relay-browser-session")
+                .iter()
+                .count(),
+            1
+        );
     }
 }
