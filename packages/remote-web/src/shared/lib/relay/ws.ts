@@ -214,7 +214,14 @@ class RelaySignedWebSocket extends EventTarget {
   }
 
   private emitProtocolError(error: unknown): void {
-    console.error("Failed to process relay WebSocket frame:", error);
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(
+      "Failed to process relay WebSocket frame:",
+      JSON.stringify(message).replace(
+        /[\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g,
+        (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`,
+      ),
+    );
     this.emitError();
     if (
       this.rawSocket.readyState === WebSocket.OPEN ||

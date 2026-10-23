@@ -1,6 +1,9 @@
 (function() {
   'use strict';
 
+  // The actual parent establishes the origin; referrer can be a prior preview page.
+  var parentOrigin = null;
+
   // =============================================================================
   // === CORE: State & Utilities ===
   // =============================================================================
@@ -16,7 +19,7 @@
     try {
       var msg = { source: SOURCE, type: type, payload: payload };
       if (version) msg.version = version;
-      window.parent.postMessage(msg, '*');
+      window.parent.postMessage(msg, parentOrigin || '*');
     } catch(e) {}
   }
 
@@ -785,6 +788,10 @@
 
   // --- Message listener ---
   window.addEventListener('message', function(event) {
+    if (window.parent === window || event.source !== window.parent) return;
+    if (!event.origin || event.origin === 'null') return;
+    if (parentOrigin === null) parentOrigin = event.origin;
+    if (event.origin !== parentOrigin) return;
     if (!event.data || event.data.source !== SOURCE) return;
     if (event.data.type === 'toggle-inspect') {
       setInspectMode(event.data.payload && event.data.payload.active);
