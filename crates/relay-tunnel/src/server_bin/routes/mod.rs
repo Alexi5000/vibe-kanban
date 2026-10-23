@@ -20,6 +20,7 @@ use super::{auth, state::RelayAppState};
 pub fn build_router(state: RelayAppState) -> Router {
     let protected = Router::new()
         .route("/relay/connect", get(connect::relay_connect))
+        .route("/relay/authorize/{host_id}/{browser_session_id}", get(path_routes::authorize_peer))
         .route(
             "/relay/create/{host_id}",
             post(auth_code::create_relay_session),

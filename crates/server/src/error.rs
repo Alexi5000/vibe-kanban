@@ -498,7 +498,8 @@ impl IntoResponse for ApiError {
                 WebRtcError::SessionNotFound { .. } => {
                     ErrorInfo::not_found("WebRtcError", err.to_string())
                 }
-                WebRtcError::IceGatheringTimedOut
+                WebRtcError::InvalidLocalPath
+                | WebRtcError::IceGatheringTimedOut
                 | WebRtcError::IceGatheringChannelDropped
                 | WebRtcError::NoLocalDescription
                 | WebRtcError::WebRtc(_) => ErrorInfo::bad_request("WebRtcError", err.to_string()),

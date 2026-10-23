@@ -1,7 +1,8 @@
 //! Relay path handlers: auth code exchange and proxy.
 
 use axum::{
-    extract::{Path, Request, State},
+    extract::{Path, Query, Request, State},
+    Extension,
     http::StatusCode,
     response::{IntoResponse, Response},
 };
@@ -9,7 +10,7 @@ use relay_tunnel_core::server::proxy_request_over_control;
 use uuid::Uuid;
 
 use super::super::{
-    auth::request_context_from_auth_session_id,
+    auth::{request_context_from_auth_session_id, RequestContext},
     db::{
         hosts::HostRepository, identity_errors::IdentityError,
         relay_browser_sessions::RelayBrowserSessionRepository,
@@ -135,8 +136,10 @@ async fn do_relay_proxy_for_host(
     state: &RelayAppState,
     host_id: Uuid,
     browser_session_id: Uuid,
-    request: Request,
+    mut request: Request,
 ) -> Response {
+    request.headers_mut().insert("x-vk-relay-host", host_id.to_string().parse().unwrap());
+    request.headers_mut().insert("x-vk-relay-browser-session", browser_session_id.to_string().parse().unwrap());
     let relay = match state.relay_registry.get(&host_id).await {
         Some(relay) => relay,
         None => return (StatusCode::NOT_FOUND, "No active relay").into_response(),
@@ -144,4 +147,27 @@ async fn do_relay_proxy_for_host(
 
     let strip_prefix = format!("{RELAY_PROXY_PREFIX}/{host_id}/s/{browser_session_id}");
     proxy_request_over_control(relay.control.as_ref(), request, &strip_prefix).await
+}
+
+#[derive(serde::Deserialize)]
+pub(super) struct AuthorityQuery { machine_id: String }
+
+pub(super) async fn authorize_peer(
+    State(state): State<RelayAppState>,
+    Extension(ctx): Extension<RequestContext>,
+    Path((host_id, browser_session_id)): Path<(Uuid, Uuid)>,
+    Query(query): Query<AuthorityQuery>,
+) -> Response {
+    let owns_host = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (SELECT 1 FROM hosts WHERE id = $1 AND owner_user_id = $2 AND machine_id = $3)"
+    ).bind(host_id).bind(ctx.user.id).bind(query.machine_id).fetch_one(&state.pool).await;
+    match owns_host {
+        Ok(true) => {},
+        Ok(false) => return StatusCode::FORBIDDEN.into_response(),
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
+    match validate_browser_session_for_host(&state, browser_session_id, host_id).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(response) => response,
+    }
 }

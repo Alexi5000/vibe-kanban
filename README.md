@@ -220,3 +220,29 @@ Dependency status as of 2026-10-20:
 
 Apache-2.0, same as upstream. Original work © BloopAI and the vibe-kanban
 contributors; fork maintenance © TechTide AI.
+
+### WebRTC session authority
+
+WebRTC is an optimization of an authenticated relay browser session. The relay
+and local host must both support the session-authority protocol. The relay
+replaces host/session metadata before forwarding a cryptographically signed
+SDP offer; an unclassified local offer or an old relay without this metadata
+cannot create a peer. Existing clients retain their relay transport fallback.
+No browser payload changes or additional credentials are required.
+
+The local host checks the configured relay's dedicated authorization endpoint
+with its existing refreshed host access token. The endpoint validates host
+ownership and machine identity, then checks the browser session, backing login
+session, user and current host access. Peer IDs and ICE candidates are scoped
+to that immutable host/browser-session binding. Signing-session TTL is not a
+substitute for this authority check.
+
+Each incoming peer operation revalidates authority. A background monitor also
+checks active peers every second; each check, including token refresh, has a
+two-second total timeout. Revocation or authority failure cancels the peer and
+its in-flight HTTP/WebSocket work, with a maximum detection window of three
+seconds plus scheduling latency. Already-completed side effects cannot be
+undone. A cancelled peer cannot resume; a new authorized offer is required.
+Authority outages fail closed for WebRTC; the ordinary relay path continues to
+apply its existing session checks. Deploy the relay protocol before upgrading
+hosts to retain WebRTC during rollout. No deployment is performed by this change.

@@ -2,6 +2,8 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum WebRtcError {
+    #[error("Invalid local request path")]
+    InvalidLocalPath,
     #[error("WebRTC operation failed: {0}")]
     WebRtc(#[from] webrtc::Error),
     #[error("ICE gathering timed out")]

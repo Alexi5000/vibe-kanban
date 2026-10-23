@@ -6,6 +6,7 @@ use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
 
 use crate::{
     WebRtcError,
+    authority::PeerAuthority,
     peer::{self, PeerConfig, PeerHandle},
     signaling::{IceCandidate, SdpAnswer, SdpOffer},
 };
@@ -38,9 +39,13 @@ impl WebRtcHost {
     /// Accept an SDP offer and return an SDP answer.
     ///
     /// Creates a new peer connection and spawns its event loop task.
-    pub async fn handle_offer(&self, offer: SdpOffer) -> Result<SdpAnswer, WebRtcError> {
+    pub async fn handle_offer(
+        &self,
+        offer: SdpOffer,
+        authority: PeerAuthority,
+    ) -> Result<SdpAnswer, WebRtcError> {
         let (answer_sdp, peer_connection) = peer::accept_offer(&offer.sdp).await?;
-        let session_id = offer.session_id.clone();
+        let session_id = format!("{}:{}", authority.binding(), offer.session_id);
 
         let (old_peer, peer_shutdown, local_backend_addr) = {
             let mut inner = self.inner.lock().await;
@@ -68,15 +73,22 @@ impl WebRtcHost {
             let config = PeerConfig {
                 local_backend_addr,
                 shutdown: peer_shutdown,
+                authority,
             };
 
-            if let Err(e) = peer::run_peer(peer_connection, config).await {
+            if let Err(e) = peer::run_peer(peer_connection.clone(), config).await {
                 tracing::warn!(?e, %session_id, "WebRTC peer task failed");
             }
 
             // Remove self from the peer map on exit.
             let mut inner = inner_ref.lock().await;
-            inner.peers.remove(&session_id);
+            if inner
+                .peers
+                .get(&session_id)
+                .is_some_and(|peer| Arc::ptr_eq(&peer.peer_connection, &peer_connection))
+            {
+                inner.peers.remove(&session_id);
+            }
         });
 
         Ok(SdpAnswer {
@@ -86,12 +98,16 @@ impl WebRtcHost {
     }
 
     /// Add a trickle ICE candidate for an active peer session.
-    pub async fn add_ice_candidate(&self, candidate: IceCandidate) -> Result<(), WebRtcError> {
+    pub async fn add_ice_candidate(
+        &self,
+        candidate: IceCandidate,
+        binding: &str,
+    ) -> Result<(), WebRtcError> {
         let peer_connection = {
             let inner = self.inner.lock().await;
             inner
                 .peers
-                .get(&candidate.session_id)
+                .get(&format!("{}:{}", binding, candidate.session_id))
                 .map(|peer| peer.peer_connection.clone())
                 .ok_or_else(|| WebRtcError::SessionNotFound {
                     session_id: candidate.session_id.clone(),
