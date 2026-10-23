@@ -18,7 +18,9 @@ use webrtc::{
 use ws_bridge::{bridge_tungstenite_ws, connect_upstream_ws};
 
 use crate::{
-    WebRtcError, fragment,
+    WebRtcError,
+    authority::PeerAuthority,
+    fragment,
     proxy::{
         DataChannelMessage, DataChannelRequest, DataChannelResponse, DataChannelWsStream, WsError,
         WsFrame, WsOpen, WsOpened,
@@ -35,6 +37,7 @@ pub struct PeerHandle {
 
 /// Configuration for creating a new peer connection.
 pub struct PeerConfig {
+    pub authority: PeerAuthority,
     /// Address of the local backend to proxy requests to.
     pub local_backend_addr: SocketAddr,
     /// Cancellation token for graceful shutdown.
@@ -107,7 +110,10 @@ pub async fn run_peer(
     peer_connection: Arc<RTCPeerConnection>,
     config: PeerConfig,
 ) -> Result<(), WebRtcError> {
-    let http_client = reqwest::Client::new();
+    let http_client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .expect("HTTP client configuration");
 
     // Channel for the data channel writer task.
     let (dc_send_tx, dc_send_rx) = mpsc::channel::<Vec<u8>>(64);
@@ -136,6 +142,10 @@ pub async fn run_peer(
         })
     }));
 
+    tokio::spawn(config.authority.clone().monitor(disconnect_token.clone()));
+    let authority = config.authority.clone();
+    let dispatch_shutdown = disconnect_token.clone();
+
     // Handle incoming data channel from the client.
     let dc_send_tx_clone = dc_send_tx.clone();
     let ws_conns = ws_connections.clone();
@@ -148,6 +158,8 @@ pub async fn run_peer(
         let local_backend_addr = local_backend_addr;
         let http_client = http_client_clone.clone();
         let dc_ready_tx = dc_ready_tx.clone();
+        let authority = authority.clone();
+        let dispatch_shutdown = dispatch_shutdown.clone();
 
         Box::pin(async move {
             tracing::debug!(label = dc.label(), "[server-peer] data channel opened");
@@ -177,7 +189,18 @@ pub async fn run_peer(
 
             // Message dispatch task.
             tokio::spawn(async move {
-                while let Some(raw) = incoming_rx.recv().await {
+                loop {
+                    let raw = tokio::select! {
+                        _ = dispatch_shutdown.cancelled() => break,
+                        raw = incoming_rx.recv() => match raw { Some(raw) => raw, None => break },
+                    };
+                    if !authority.authorized().await {
+                        dispatch_shutdown.cancel();
+                        break;
+                    }
+                    if dispatch_shutdown.is_cancelled() {
+                        break;
+                    }
                     let message: DataChannelMessage = match serde_json::from_slice(&raw) {
                         Ok(msg) => msg,
                         Err(e) => {
@@ -197,8 +220,15 @@ pub async fn run_peer(
                             let client = http_client.clone();
                             let addr = local_backend_addr;
                             let tx = dc_send_tx.clone();
+                            let shutdown = dispatch_shutdown.clone();
                             tokio::spawn(async move {
-                                let response = proxy_request(&client, addr, request).await;
+                                let Some(response) = proxy_request_until_cancelled(
+                                    &client, addr, request, &shutdown,
+                                )
+                                .await
+                                else {
+                                    return;
+                                };
                                 tracing::trace!(
                                     id = %response.id,
                                     status = response.status,
@@ -217,8 +247,14 @@ pub async fn run_peer(
                         }
 
                         DataChannelMessage::WsOpen(ws_open) => {
-                            handle_ws_open(ws_open, local_backend_addr, &dc_send_tx, &ws_conns)
-                                .await;
+                            handle_ws_open(
+                                ws_open,
+                                local_backend_addr,
+                                &dc_send_tx,
+                                &ws_conns,
+                                dispatch_shutdown.clone(),
+                            )
+                            .await;
                         }
 
                         DataChannelMessage::WsFrame(frame) => {
@@ -291,11 +327,32 @@ pub async fn run_peer(
 // HTTP proxy
 // ---------------------------------------------------------------------------
 
+async fn proxy_request_until_cancelled(
+    client: &reqwest::Client,
+    addr: SocketAddr,
+    request: DataChannelRequest,
+    shutdown: &CancellationToken,
+) -> Option<DataChannelResponse> {
+    tokio::select! {
+        biased;
+        _ = shutdown.cancelled() => None,
+        response = proxy_request(client, addr, request) => Some(response),
+    }
+}
+
 async fn proxy_request(
     http_client: &reqwest::Client,
     local_backend_addr: SocketAddr,
     request: DataChannelRequest,
 ) -> DataChannelResponse {
+    if !valid_local_path(&request.path) {
+        return DataChannelResponse {
+            id: request.id,
+            status: 400,
+            headers: Default::default(),
+            body_b64: None,
+        };
+    }
     let url = format!("http://{}{}", local_backend_addr, request.path);
 
     let method = match request.method.to_uppercase().as_str() {
@@ -321,7 +378,15 @@ async fn proxy_request(
 
     for (key, values) in &request.headers {
         let k = key.to_ascii_lowercase();
-        if k == "origin" || k == "host" || k == "x-vk-relayed" {
+        if matches!(
+            k.as_str(),
+            "origin"
+                | "host"
+                | "x-vk-relayed"
+                | "x-vk-relay-host"
+                | "x-vk-relay-browser-session"
+                | "x-vk-tunnel-provenance"
+        ) {
             continue;
         }
         for value in values {
@@ -397,6 +462,7 @@ async fn handle_ws_open(
     local_backend_addr: SocketAddr,
     dc_send_tx: &mpsc::Sender<Vec<u8>>,
     ws_connections: &Arc<Mutex<HashMap<Uuid, mpsc::Sender<WsFrame>>>>,
+    shutdown: CancellationToken,
 ) {
     let conn_id = ws_open.conn_id;
     let (frame_tx, frame_rx) = mpsc::channel::<WsFrame>(32);
@@ -407,7 +473,11 @@ async fn handle_ws_open(
     let ws_connections = ws_connections.clone();
 
     tokio::spawn(async move {
-        let bridge_result = run_ws_bridge(ws_open, addr, frame_rx, &dc_tx).await;
+        let bridge_result = tokio::select! {
+            biased;
+            _ = shutdown.cancelled() => Ok(()),
+            result = run_ws_bridge(ws_open, addr, frame_rx, &dc_tx) => result,
+        };
 
         // Always clear the per-connection sender when the bridge task exits.
         ws_connections.lock().await.remove(&conn_id);
@@ -435,6 +505,9 @@ async fn run_ws_bridge(
     dc_tx: &mpsc::Sender<Vec<u8>>,
 ) -> Result<(), WebRtcError> {
     let conn_id = ws_open.conn_id;
+    if !valid_local_path(&ws_open.path) {
+        return Err(WebRtcError::InvalidLocalPath);
+    }
     let url = format!("ws://{}{}", local_backend_addr, ws_open.path);
     let (ws_stream, selected_protocol) =
         connect_upstream_ws(url, ws_open.protocols.as_deref()).await?;
@@ -460,6 +533,15 @@ async fn run_ws_bridge(
         .map_err(WebRtcError::from)
 }
 
+fn valid_local_path(path: &str) -> bool {
+    path.starts_with('/')
+        && !path.starts_with("//")
+        && !path.contains(['\\', '#'])
+        && path
+            .parse::<http::Uri>()
+            .is_ok_and(|uri| uri.scheme().is_none() && uri.authority().is_none())
+}
+
 #[cfg(test)]
 mod tests {
     use tokio::{
@@ -468,6 +550,20 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    fn local_paths_cannot_override_proxy_authority() {
+        for path in [
+            "@attacker.example/",
+            "//attacker.example/",
+            "https://attacker.example/",
+            "/\\attacker.example/",
+            "/api/health#fragment",
+        ] {
+            assert!(!valid_local_path(path), "{path}");
+        }
+        assert!(valid_local_path("/api/health?test=1"));
+    }
 
     #[tokio::test]
     async fn http_proxy_synthesizes_local_host_after_removing_untrusted_host() {
@@ -536,6 +632,84 @@ mod tests {
                 .unwrap();
             drop(socket);
             backend.await.unwrap();
+        })
+        .await
+        .unwrap();
+    }
+    #[tokio::test]
+    async fn cancelled_peer_aborts_inflight_http() {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let shutdown = CancellationToken::new();
+            let cancel = shutdown.clone();
+            let (accepted_tx, accepted_rx) = tokio::sync::oneshot::channel();
+            let backend = tokio::spawn(async move {
+                let (socket, _) = listener.accept().await.unwrap();
+                accepted_tx.send(()).unwrap();
+                std::future::pending::<()>().await;
+                drop(socket);
+            });
+            let request = DataChannelRequest {
+                id: Uuid::new_v4(),
+                method: "GET".into(),
+                path: "/api/health".into(),
+                headers: Default::default(),
+                body_b64: None,
+            };
+            let client = reqwest::Client::new();
+            let work = tokio::spawn(async move {
+                proxy_request_until_cancelled(&client, addr, request, &shutdown).await
+            });
+            accepted_rx.await.unwrap();
+            cancel.cancel();
+            assert!(work.await.unwrap().is_none());
+            backend.abort();
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn cancelled_peer_closes_active_websocket_bridge() {
+        use futures_util::StreamExt;
+        tokio::time::timeout(Duration::from_secs(5), async {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let backend = tokio::spawn(async move {
+                let (socket, _) = listener.accept().await.unwrap();
+                let mut ws = tokio_tungstenite::accept_async(socket).await.unwrap();
+                let closed = ws.next().await;
+                assert!(
+                    closed.is_none()
+                        || closed
+                            .is_some_and(|result| result.is_err()
+                                || result.is_ok_and(|frame| frame.is_close()))
+                );
+            });
+            let shutdown = CancellationToken::new();
+            let (dc_tx, mut dc_rx) = mpsc::channel(8);
+            let connections = Arc::new(Mutex::new(HashMap::new()));
+            handle_ws_open(
+                WsOpen {
+                    conn_id: Uuid::new_v4(),
+                    path: "/api/events".into(),
+                    protocols: None,
+                },
+                addr,
+                &dc_tx,
+                &connections,
+                shutdown.clone(),
+            )
+            .await;
+            let opened: DataChannelMessage =
+                serde_json::from_slice(&dc_rx.recv().await.unwrap()).unwrap();
+            assert!(matches!(opened, DataChannelMessage::WsOpened(_)));
+            shutdown.cancel();
+            backend.await.unwrap();
+            while !connections.lock().await.is_empty() {
+                tokio::task::yield_now().await;
+            }
         })
         .await
         .unwrap();

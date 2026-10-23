@@ -1,3 +1,4 @@
+pub mod authority;
 pub mod client;
 pub mod error;
 pub mod fragment;

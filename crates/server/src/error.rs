@@ -495,10 +495,14 @@ impl IntoResponse for ApiError {
             ApiError::Config(_) => ErrorInfo::internal("ConfigError"),
             ApiError::Io(_) => ErrorInfo::internal("IoError"),
             ApiError::WebRtc(err) => match err {
+                WebRtcError::SessionRevoked => {
+                    ErrorInfo::with_status(StatusCode::UNAUTHORIZED, "WebRtcError", err.to_string())
+                }
                 WebRtcError::SessionNotFound { .. } => {
                     ErrorInfo::not_found("WebRtcError", err.to_string())
                 }
-                WebRtcError::IceGatheringTimedOut
+                WebRtcError::InvalidLocalPath
+                | WebRtcError::IceGatheringTimedOut
                 | WebRtcError::IceGatheringChannelDropped
                 | WebRtcError::NoLocalDescription
                 | WebRtcError::WebRtc(_) => ErrorInfo::bad_request("WebRtcError", err.to_string()),

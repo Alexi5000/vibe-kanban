@@ -220,3 +220,35 @@ Dependency status as of 2026-10-20:
 
 Apache-2.0, same as upstream. Original work © BloopAI and the vibe-kanban
 contributors; fork maintenance © TechTide AI.
+
+### WebRTC session authority
+
+WebRTC is an optimization of an authenticated relay browser session. The relay
+and local host must both support the session-authority protocol. The relay
+replaces host/session metadata before forwarding a cryptographically signed
+SDP offer; an unclassified local offer or an old relay without this metadata
+cannot create a peer. Existing clients retain their relay transport fallback.
+The local control-tunnel client also stamps a process-random provenance nonce
+only on the two signaling routes. The host requires that nonce as well as the
+verified signature, so possession of a signing key cannot forge relay metadata
+on a direct local request. The nonce stays in process memory and local signaling
+requests; other routes and peer traffic strip it. No browser payload changes or
+additional configured credentials are required.
+
+The local host checks the configured relay's dedicated authorization endpoint
+with its existing refreshed host access token. The endpoint validates host
+ownership and machine identity, then checks the browser session, backing login
+session, user and current host access. Peer IDs and ICE candidates are scoped
+to that immutable host/browser-session binding. Signing-session TTL is not a
+substitute for this authority check.
+
+Each incoming peer operation revalidates authority. A background monitor also
+checks active peers every second; each check, including token refresh, has a
+two-second total timeout. Revocation or authority failure cancels the peer and
+its in-flight HTTP/WebSocket work, with a maximum detection window of three
+seconds plus scheduling latency. Already-completed side effects cannot be
+undone. Explicit relay stop/restart also cancels the current peer generation.
+A cancelled peer cannot resume; a new authorized offer is required.
+Authority outages fail closed for WebRTC; the ordinary relay path continues to
+apply its existing session checks. Deploy the relay protocol before upgrading
+hosts to retain WebRTC during rollout. No deployment is performed by this change.

@@ -34,6 +34,7 @@ struct RelayParams {
     relay_base: String,
     machine_id: String,
     host_nickname: String,
+    tunnel_provenance: String,
 }
 
 /// Resolve all preconditions for starting the relay. Returns `None` if any
@@ -68,12 +69,15 @@ async fn resolve_relay_params(deployment: &DeploymentImpl) -> Option<RelayParams
         None
     })?;
 
+    let tunnel_provenance = deployment.webrtc_host()?.tunnel_provenance();
+
     Some(RelayParams {
         server_addr,
         remote_client,
         relay_base,
         machine_id: deployment.user_id().to_string(),
         host_nickname,
+        tunnel_provenance,
     })
 }
 
@@ -84,6 +88,10 @@ pub async fn spawn_relay(deployment: &DeploymentImpl) {
         return;
     };
 
+    if let Some(host) = deployment.webrtc_host() {
+        host.stop_all().await;
+        host.start().await;
+    }
     let cancel_token = deployment.relay_control().reset().await;
 
     tokio::spawn(async move {
@@ -116,6 +124,9 @@ pub async fn spawn_relay(deployment: &DeploymentImpl) {
 /// Stop the relay by cancelling the current session token.
 pub async fn stop_relay(deployment: &DeploymentImpl) {
     deployment.relay_control().stop().await;
+    if let Some(host) = deployment.webrtc_host() {
+        host.stop_all().await;
+    }
     tracing::debug!("Relay stopped");
 }
 
@@ -151,6 +162,7 @@ async fn start_relay(
     start_relay_client(RelayClientConfig {
         ws_url,
         bearer_token: access_token,
+        tunnel_provenance: params.tunnel_provenance.clone(),
         local_addr: params.server_addr,
         shutdown,
     })
