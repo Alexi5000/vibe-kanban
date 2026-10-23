@@ -34,6 +34,7 @@ struct RelayParams {
     relay_base: String,
     machine_id: String,
     host_nickname: String,
+    tunnel_provenance: String,
 }
 
 /// Resolve all preconditions for starting the relay. Returns `None` if any
@@ -68,12 +69,15 @@ async fn resolve_relay_params(deployment: &DeploymentImpl) -> Option<RelayParams
         None
     })?;
 
+    let tunnel_provenance = deployment.webrtc_host()?.tunnel_provenance();
+
     Some(RelayParams {
         server_addr,
         remote_client,
         relay_base,
         machine_id: deployment.user_id().to_string(),
         host_nickname,
+        tunnel_provenance,
     })
 }
 
@@ -151,6 +155,7 @@ async fn start_relay(
     start_relay_client(RelayClientConfig {
         ws_url,
         bearer_token: access_token,
+        tunnel_provenance: params.tunnel_provenance.clone(),
         local_addr: params.server_addr,
         shutdown,
     })

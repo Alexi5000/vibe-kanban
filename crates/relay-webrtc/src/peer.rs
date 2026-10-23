@@ -380,7 +380,12 @@ async fn proxy_request(
         let k = key.to_ascii_lowercase();
         if matches!(
             k.as_str(),
-            "origin" | "host" | "x-vk-relayed" | "x-vk-relay-host" | "x-vk-relay-browser-session"
+            "origin"
+                | "host"
+                | "x-vk-relayed"
+                | "x-vk-relay-host"
+                | "x-vk-relay-browser-session"
+                | "x-vk-tunnel-provenance"
         ) {
             continue;
         }

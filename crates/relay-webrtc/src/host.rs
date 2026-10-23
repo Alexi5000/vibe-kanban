@@ -16,6 +16,7 @@ use crate::{
 /// Accepts SDP offers from remote peers, creates peer connections, and runs
 /// tasks that proxy data channel traffic to the local backend.
 pub struct WebRtcHost {
+    tunnel_provenance: uuid::Uuid,
     inner: Arc<Mutex<WebRtcHostInner>>,
 }
 
@@ -28,12 +29,22 @@ struct WebRtcHostInner {
 impl WebRtcHost {
     pub fn new(local_backend_addr: SocketAddr, shutdown: CancellationToken) -> Self {
         Self {
+            tunnel_provenance: uuid::Uuid::new_v4(),
             inner: Arc::new(Mutex::new(WebRtcHostInner {
                 peers: HashMap::new(),
                 local_backend_addr,
                 shutdown,
             })),
         }
+    }
+
+    pub fn tunnel_provenance(&self) -> String {
+        self.tunnel_provenance.to_string()
+    }
+
+    pub fn accepts_tunnel_provenance(&self, value: &str) -> bool {
+        uuid::Uuid::parse_str(value)
+            .is_ok_and(|value| (value.as_u128() ^ self.tunnel_provenance.as_u128()) == 0)
     }
 
     /// Accept an SDP offer and return an SDP answer.
@@ -124,5 +135,19 @@ impl WebRtcHost {
         peer_connection.add_ice_candidate(init).await?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn only_current_local_tunnel_can_supply_provenance() {
+        let host = WebRtcHost::new("127.0.0.1:1".parse().unwrap(), CancellationToken::new());
+        let other = WebRtcHost::new("127.0.0.1:1".parse().unwrap(), CancellationToken::new());
+        assert!(host.accepts_tunnel_provenance(&host.tunnel_provenance()));
+        assert!(!host.accepts_tunnel_provenance(&other.tunnel_provenance()));
+        assert!(!host.accepts_tunnel_provenance(""));
+        assert!(!host.accepts_tunnel_provenance(&uuid::Uuid::new_v4().to_string()));
     }
 }

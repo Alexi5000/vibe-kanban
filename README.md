@@ -228,7 +228,12 @@ and local host must both support the session-authority protocol. The relay
 replaces host/session metadata before forwarding a cryptographically signed
 SDP offer; an unclassified local offer or an old relay without this metadata
 cannot create a peer. Existing clients retain their relay transport fallback.
-No browser payload changes or additional credentials are required.
+The local control-tunnel client also stamps a process-random provenance nonce
+only on the two signaling routes. The host requires that nonce as well as the
+verified signature, so possession of a signing key cannot forge relay metadata
+on a direct local request. The nonce stays in process memory and local signaling
+requests; other routes and peer traffic strip it. No browser payload changes or
+additional configured credentials are required.
 
 The local host checks the configured relay's dedicated authorization endpoint
 with its existing refreshed host access token. The endpoint validates host

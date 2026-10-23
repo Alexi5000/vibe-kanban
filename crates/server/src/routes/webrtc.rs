@@ -71,6 +71,15 @@ fn peer_authority(
     headers: &HeaderMap,
 ) -> Result<PeerAuthority, ApiError> {
     signature.ok_or(ApiError::Unauthorized)?;
+    let host_runtime = deployment.webrtc_host().ok_or(ApiError::Unauthorized)?;
+    if headers.get_all("x-vk-tunnel-provenance").iter().count() != 1
+        || !headers
+            .get("x-vk-tunnel-provenance")
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| host_runtime.accepts_tunnel_provenance(value))
+    {
+        return Err(ApiError::Unauthorized);
+    }
     let parse = |name: &str| -> Result<Uuid, ApiError> {
         if headers.get_all(name).iter().count() != 1 {
             return Err(ApiError::Unauthorized);
