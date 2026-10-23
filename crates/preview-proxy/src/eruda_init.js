@@ -1,5 +1,8 @@
 (function() {
   'use strict';
+
+  // The actual parent establishes the origin; referrer can be a prior preview page.
+  var parentOrigin = null;
   
   const SOURCE = 'vibe-devtools';
   const COMMAND_SOURCE = 'vibe-kanban';
@@ -7,7 +10,7 @@
   // === Helper: Send message to parent ===
   function send(type, payload) {
     try {
-      window.parent.postMessage({ source: SOURCE, type, payload }, '*');
+      window.parent.postMessage({ source: SOURCE, type, payload }, parentOrigin || '*');
     } catch (e) {
       // Ignore if parent is not accessible
     }
@@ -37,6 +40,10 @@
   
   // === Command Receiver ===
   window.addEventListener('message', function(event) {
+    if (window.parent === window || event.source !== window.parent) return;
+    if (!event.origin || event.origin === 'null') return;
+    if (parentOrigin === null) parentOrigin = event.origin;
+    if (event.origin !== parentOrigin) return;
     if (!event.data || event.data.source !== COMMAND_SOURCE) {
       return;
     }

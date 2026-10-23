@@ -139,7 +139,9 @@ async function extractAndRun(
   } catch (err: unknown) {
     if (process.env.VIBE_KANBAN_DEBUG) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`Warning: Could not delete existing binary: ${msg}`);
+      console.warn(
+        `Warning: Could not delete existing binary: ${JSON.stringify(msg).replace(/[\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`)}`,
+      );
     }
   }
 
@@ -151,7 +153,9 @@ async function extractAndRun(
       console.error(""); // newline after progress
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`\nDownload failed: ${msg}`);
+      console.error(
+        `\nDownload failed: ${JSON.stringify(msg).replace(/[\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`)}`,
+      );
       process.exit(1);
     }
   }
@@ -266,7 +270,9 @@ async function runMain(desktopMode: boolean): Promise<void> {
       process.exit(exitCode);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`Desktop app not available: ${msg}`);
+      console.error(
+        `Desktop app not available: ${JSON.stringify(msg).replace(/[\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`)}`,
+      );
       console.error("Falling back to browser mode...");
     }
   }

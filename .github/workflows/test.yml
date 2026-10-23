@@ -54,6 +54,10 @@ jobs:
               - 'scripts/check-i18n.sh'
               - 'scripts/check-unused-i18n-keys.mjs'
               - 'scripts/test-vscode-message-boundary.cjs'
+              - 'scripts/test-preview-message-boundaries.cjs'
+              - 'scripts/test-log-output-boundaries.cjs'
+              - 'crates/preview-proxy/src/*.js'
+              - 'npx-cli/src/cli.ts'
               - 'scripts/check-legacy-frontend-paths.sh'
               - 'scripts/legacy-frontend-paths-allowlist.txt'
               - 'pnpm-lock.yaml'
@@ -209,7 +213,7 @@ jobs:
             "./scripts/check-legacy-frontend-paths.sh"
 
       - name: Test VS Code message boundaries
-        run: node --test scripts/test-vscode-message-boundary.cjs
+        run: node --test scripts/test-vscode-message-boundary.cjs scripts/test-preview-message-boundaries.cjs scripts/test-log-output-boundaries.cjs
 
   backend-schema-checks:
     needs: changes

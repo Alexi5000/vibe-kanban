@@ -60,7 +60,10 @@ export class ClickToComponentListener {
   private handlers: EventHandlers = {};
   private messageListener: ((event: MessageEvent) => void) | null = null;
 
-  constructor(handlers: EventHandlers = {}) {
+  constructor(
+    handlers: EventHandlers,
+    private iframeRef: { current: HTMLIFrameElement | null }
+  ) {
     this.handlers = handlers;
   }
 
@@ -73,6 +76,11 @@ export class ClickToComponentListener {
     }
 
     this.messageListener = (event: MessageEvent) => {
+      const iframe = this.iframeRef.current;
+      if (!iframe?.contentWindow || event.source !== iframe.contentWindow)
+        return;
+      const origin = this.iframeOrigin(iframe);
+      if (!origin || event.origin !== origin) return;
       const data = event.data as ClickToComponentMessage;
 
       // Only handle messages from our click-to-component tool
@@ -88,7 +96,7 @@ export class ClickToComponentListener {
               version: 1,
               type: 'enable-button',
             };
-            (event.source as Window).postMessage(enableMsg, '*');
+            iframe.contentWindow.postMessage(enableMsg, origin);
           }
           this.handlers.onReady?.();
           break;
@@ -124,21 +132,30 @@ export class ClickToComponentListener {
     this.handlers = { ...this.handlers, ...handlers };
   }
 
-  /**
-   * Send a message to the iframe (if needed)
-   */
+  private iframeOrigin(iframe: HTMLIFrameElement): string | null {
+    try {
+      const origin = new URL(iframe.src, window.location.href).origin;
+      return origin === 'null' ? null : origin;
+    } catch {
+      return null;
+    }
+  }
+
   sendToIframe(iframe: HTMLIFrameElement, message: unknown): void {
-    if (iframe.contentWindow) {
-      iframe.contentWindow.postMessage(message, '*');
+    if (iframe !== this.iframeRef.current) return;
+    const origin = this.iframeOrigin(iframe);
+    if (origin && iframe.contentWindow) {
+      iframe.contentWindow.postMessage(message, origin);
     }
   }
 }
 
 // Convenience function for quick setup
 export function listenToClickToComponent(
-  handlers: EventHandlers
+  handlers: EventHandlers,
+  iframeRef: { current: HTMLIFrameElement | null }
 ): ClickToComponentListener {
-  const listener = new ClickToComponentListener(handlers);
+  const listener = new ClickToComponentListener(handlers, iframeRef);
   listener.start();
   return listener;
 }
