@@ -280,6 +280,7 @@ jobs:
         run: |
           python3 crates/remote/scripts/test-private-billing.py
           cargo test --locked --manifest-path crates/remote/Cargo.toml --lib
+          cargo test --locked --manifest-path crates/relay-tunnel/Cargo.toml --bin relay-server
 
       - name: Check generated types
         run: npm run remote:generate-types:check
