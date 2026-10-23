@@ -39,7 +39,16 @@ impl OriginKey {
 
     fn from_host_header(host: &str, https: bool) -> Option<Self> {
         let authority: axum::http::uri::Authority = host.parse().ok()?;
-        if authority.port().is_some() && authority.port_u16().is_none() {
+        if authority.as_str().contains('@') {
+            return None;
+        }
+        let suffix = &authority.as_str()[authority.host().len()..];
+        if !suffix.is_empty()
+            && suffix
+                .strip_prefix(':')
+                .and_then(|port| port.parse::<u16>().ok())
+                .is_none()
+        {
             return None;
         }
         let host = normalize_host(authority.host());
