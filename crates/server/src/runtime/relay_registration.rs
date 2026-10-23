@@ -88,6 +88,9 @@ pub async fn spawn_relay(deployment: &DeploymentImpl) {
         return;
     };
 
+    if let Some(host) = deployment.webrtc_host() {
+        host.stop_all().await;
+    }
     let cancel_token = deployment.relay_control().reset().await;
 
     tokio::spawn(async move {
@@ -120,6 +123,9 @@ pub async fn spawn_relay(deployment: &DeploymentImpl) {
 /// Stop the relay by cancelling the current session token.
 pub async fn stop_relay(deployment: &DeploymentImpl) {
     deployment.relay_control().stop().await;
+    if let Some(host) = deployment.webrtc_host() {
+        host.stop_all().await;
+    }
     tracing::debug!("Relay stopped");
 }
 

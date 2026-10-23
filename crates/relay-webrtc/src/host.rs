@@ -24,6 +24,7 @@ struct WebRtcHostInner {
     peers: HashMap<String, PeerHandle>,
     local_backend_addr: SocketAddr,
     shutdown: CancellationToken,
+    lifetime: CancellationToken,
 }
 
 impl WebRtcHost {
@@ -33,8 +34,26 @@ impl WebRtcHost {
             inner: Arc::new(Mutex::new(WebRtcHostInner {
                 peers: HashMap::new(),
                 local_backend_addr,
-                shutdown,
+                lifetime: shutdown.clone(),
+                shutdown: shutdown.child_token(),
             })),
+        }
+    }
+
+    pub async fn stop_all(&self) {
+        let peers = {
+            let mut inner = self.inner.lock().await;
+            inner.shutdown.cancel();
+            inner.shutdown = inner.lifetime.child_token();
+            inner
+                .peers
+                .drain()
+                .map(|(_, peer)| peer)
+                .collect::<Vec<_>>()
+        };
+        for peer in peers {
+            peer.shutdown.cancel();
+            let _ = peer.peer_connection.close().await;
         }
     }
 
@@ -149,5 +168,16 @@ mod tests {
         assert!(!host.accepts_tunnel_provenance(&other.tunnel_provenance()));
         assert!(!host.accepts_tunnel_provenance(""));
         assert!(!host.accepts_tunnel_provenance(&uuid::Uuid::new_v4().to_string()));
+    }
+    #[tokio::test]
+    async fn stopping_relay_cancels_old_peer_generation_and_allows_new_authorized_offers() {
+        let host = WebRtcHost::new("127.0.0.1:1".parse().unwrap(), CancellationToken::new());
+        let old_peer = host.inner.lock().await.shutdown.child_token();
+        host.stop_all().await;
+        assert!(old_peer.is_cancelled());
+        let new_peer = host.inner.lock().await.shutdown.child_token();
+        assert!(!new_peer.is_cancelled());
+        host.stop_all().await;
+        assert!(new_peer.is_cancelled());
     }
 }

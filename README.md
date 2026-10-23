@@ -247,7 +247,8 @@ checks active peers every second; each check, including token refresh, has a
 two-second total timeout. Revocation or authority failure cancels the peer and
 its in-flight HTTP/WebSocket work, with a maximum detection window of three
 seconds plus scheduling latency. Already-completed side effects cannot be
-undone. A cancelled peer cannot resume; a new authorized offer is required.
+undone. Explicit relay stop/restart also cancels the current peer generation.
+A cancelled peer cannot resume; a new authorized offer is required.
 Authority outages fail closed for WebRTC; the ordinary relay path continues to
 apply its existing session checks. Deploy the relay protocol before upgrading
 hosts to retain WebRTC during rollout. No deployment is performed by this change.
