@@ -132,7 +132,7 @@ mod tests {
         let service = JwtService::new(SECRET.into());
         match service.decode_access_token(token) {
             Err(JwtError::Jwt(error)) => assert_eq!(error.kind(), &expected),
-            result => panic!("expected {expected:?}, got {result:?}"),
+            _ => panic!("expected JWT error {expected:?}"),
         }
     }
 
