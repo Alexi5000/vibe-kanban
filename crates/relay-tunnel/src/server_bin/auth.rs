@@ -101,6 +101,134 @@ impl JwtService {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use jsonwebtoken::{EncodingKey, Header, encode, errors::ErrorKind};
+
+    use super::*;
+
+    const SECRET: &str = "cmVsYXktand0LWNvbXBhdGliaWxpdHktdGVzdC1rZXktMzJieXRlcw==";
+
+    fn claims() -> AccessTokenClaims {
+        AccessTokenClaims {
+            sub: Uuid::from_u128(1),
+            session_id: Uuid::from_u128(2),
+            iat: Utc::now().timestamp(),
+            exp: Utc::now().timestamp() + 3600,
+            aud: "access".to_string(),
+        }
+    }
+
+    fn token(claims: &AccessTokenClaims, algorithm: Algorithm, secret: &str) -> String {
+        encode(
+            &Header::new(algorithm),
+            claims,
+            &EncodingKey::from_base64_secret(secret).unwrap(),
+        )
+        .unwrap()
+    }
+
+    fn assert_jwt_error(token: &str, expected: ErrorKind) {
+        let service = JwtService::new(SECRET.into());
+        match service.decode_access_token(token) {
+            Err(JwtError::Jwt(error)) => assert_eq!(error.kind(), &expected),
+            result => panic!("expected {expected:?}, got {result:?}"),
+        }
+    }
+
+    #[test]
+    fn accepts_independently_signed_hs256_token() {
+        let token = concat!(
+            "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.",
+            "eyJzdWIiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJzZXNzaW9uX2lkIjoiMjIyMjIyMjItMjIyMi00MjIyLTgyMjItMjIyMjIyMjIyMjIyIiwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDAsImF1ZCI6ImFjY2VzcyJ9.",
+            "j1MQZg4I_lyG1fW4mfEhj5XehFZPbiIl3vDDmCN6IfU"
+        );
+        let service = JwtService::new(SECRET.into());
+        let decoded = service.decode_access_token(token).unwrap();
+        assert_eq!(
+            decoded.user_id.to_string(),
+            "11111111-1111-4111-8111-111111111111"
+        );
+        assert_eq!(
+            decoded.session_id.to_string(),
+            "22222222-2222-4222-8222-222222222222"
+        );
+        assert_eq!(decoded.expires_at.timestamp(), 4102444800);
+    }
+
+    #[test]
+    fn rejects_invalid_signature() {
+        let token = token(&claims(), Algorithm::HS256, "ZGlmZmVyZW50LXNlY3JldA==");
+        assert_jwt_error(&token, ErrorKind::InvalidSignature);
+    }
+
+    #[test]
+    fn rejects_other_hmac_algorithms() {
+        for algorithm in [Algorithm::HS384, Algorithm::HS512] {
+            assert_jwt_error(
+                &token(&claims(), algorithm, SECRET),
+                ErrorKind::InvalidAlgorithm,
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_expired_token() {
+        let mut claims = claims();
+        claims.exp = claims.iat - 3600;
+        assert_jwt_error(
+            &token(&claims, Algorithm::HS256, SECRET),
+            ErrorKind::ExpiredSignature,
+        );
+    }
+
+    #[test]
+    fn rejects_wrong_audience() {
+        let mut claims = claims();
+        claims.aud = "refresh".to_string();
+        assert_jwt_error(
+            &token(&claims, Algorithm::HS256, SECRET),
+            ErrorKind::InvalidAudience,
+        );
+    }
+
+    #[test]
+    fn rejects_missing_required_claims() {
+        #[derive(Serialize)]
+        struct IncompleteClaims {
+            sub: Uuid,
+            session_id: Uuid,
+            iat: i64,
+            exp: i64,
+        }
+        let claims = claims();
+        let token = encode(
+            &Header::new(Algorithm::HS256),
+            &IncompleteClaims {
+                sub: claims.sub,
+                session_id: claims.session_id,
+                iat: claims.iat,
+                exp: claims.exp,
+            },
+            &EncodingKey::from_base64_secret(SECRET).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            JwtService::new(SECRET.into())
+                .decode_access_token(&token)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn rejects_empty_and_malformed_tokens() {
+        let service = JwtService::new(SECRET.into());
+        for token in ["", "   ", "not-a-token", "e30.e30."] {
+            assert!(service.decode_access_token(token).is_err());
+        }
+    }
+}
+
 // ── Request Context ───────────────────────────────────────────────────
 
 #[derive(Clone)]
